@@ -61,6 +61,6 @@ fun parseHexColor(hex: String): Color {
         val cleanHex = hex.removePrefix("#")
         Color(android.graphics.Color.parseColor("#$cleanHex"))
     } catch (e: Exception) {
-        DarkTextTertiary
+        Color(0xFF9CA3AF)
     }
 }

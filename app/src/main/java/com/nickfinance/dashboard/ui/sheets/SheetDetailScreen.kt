@@ -100,6 +100,7 @@ import com.nickfinance.dashboard.ui.theme.GroupColorPresets
 import com.nickfinance.dashboard.ui.theme.MonoFontFamily
 import com.nickfinance.dashboard.ui.theme.parseHexColor
 import com.nickfinance.dashboard.util.FormatUtils
+import com.nickfinance.dashboard.util.FormulaParser
 import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -414,6 +415,7 @@ private fun SheetTable(
         ) { _, rowWithCells ->
             SwipeToDeleteRow(
                 rowWithCells = rowWithCells,
+                allColumns = columns,
                 firstColumn = firstColumn,
                 restColumns = restColumns,
                 horizontalScrollState = horizontalScrollState,
@@ -424,6 +426,21 @@ private fun SheetTable(
                 thickness = 0.5.dp,
                 color = colors.border.copy(alpha = 0.5f)
             )
+        }
+
+        // ── Statistics summary row ──
+        if (rows.isNotEmpty()) {
+            item {
+                HorizontalDivider(thickness = 1.5.dp, color = colors.accentBlue.copy(alpha = 0.3f))
+                StatisticsSummaryRow(
+                    columns = columns,
+                    rows = rows,
+                    firstColumn = firstColumn,
+                    restColumns = restColumns,
+                    horizontalScrollState = horizontalScrollState
+                )
+                HorizontalDivider(thickness = 1.dp, color = colors.border)
+            }
         }
 
         // ── Add row button ──
@@ -489,6 +506,7 @@ private fun HeaderCell(
 @Composable
 private fun SwipeToDeleteRow(
     rowWithCells: RowWithCells,
+    allColumns: List<ColumnDefEntity>,
     firstColumn: ColumnDefEntity,
     restColumns: List<ColumnDefEntity>,
     horizontalScrollState: androidx.compose.foundation.ScrollState,
@@ -537,6 +555,7 @@ private fun SwipeToDeleteRow(
         content = {
             DataRow(
                 rowWithCells = rowWithCells,
+                allColumns = allColumns,
                 firstColumn = firstColumn,
                 restColumns = restColumns,
                 horizontalScrollState = horizontalScrollState,
@@ -553,12 +572,18 @@ private fun SwipeToDeleteRow(
 @Composable
 private fun DataRow(
     rowWithCells: RowWithCells,
+    allColumns: List<ColumnDefEntity>,
     firstColumn: ColumnDefEntity,
     restColumns: List<ColumnDefEntity>,
     horizontalScrollState: androidx.compose.foundation.ScrollState,
     onRowClick: () -> Unit
 ) {
     val colors = AppTheme.colors
+
+    // Evaluate formula columns, merging with real cell values
+    val resolvedCells = remember(rowWithCells.cells, allColumns) {
+        resolveRowValues(rowWithCells.cells, allColumns)
+    }
 
     Row(
         modifier = Modifier
@@ -567,7 +592,7 @@ private fun DataRow(
     ) {
         // Frozen first column cell
         DataCell(
-            value = rowWithCells.cells[firstColumn.id] ?: "",
+            value = resolvedCells[firstColumn.id] ?: "",
             column = firstColumn,
             width = DATE_COLUMN_WIDTH,
             isFirst = true,
@@ -579,12 +604,126 @@ private fun DataRow(
         ) {
             restColumns.forEach { column ->
                 DataCell(
-                    value = rowWithCells.cells[column.id] ?: "",
+                    value = resolvedCells[column.id] ?: "",
                     column = column,
                     width = STANDARD_COLUMN_WIDTH,
                     isFirst = false,
                     onClick = onRowClick
                 )
+            }
+        }
+    }
+}
+
+/** Resolve cell values: for columns with formulas, evaluate them using other cell values. */
+private fun resolveRowValues(
+    cells: Map<Long, String>,
+    columns: List<ColumnDefEntity>
+): Map<Long, String> {
+    val result = cells.toMutableMap()
+    for (col in columns) {
+        if (!col.formula.isNullOrBlank()) {
+            val evaluated = FormulaParser.evaluate(col.formula, columns, result)
+            result[col.id] = evaluated
+        }
+    }
+    return result
+}
+
+// ══════════════════════════════════════════════════
+// Statistics summary row
+// ══════════════════════════════════════════════════
+
+@Composable
+private fun StatisticsSummaryRow(
+    columns: List<ColumnDefEntity>,
+    rows: List<RowWithCells>,
+    firstColumn: ColumnDefEntity,
+    restColumns: List<ColumnDefEntity>,
+    horizontalScrollState: androidx.compose.foundation.ScrollState
+) {
+    val colors = AppTheme.colors
+
+    // Compute column sums for numeric columns (CURRENCY, NUMBER, PERCENTAGE)
+    val columnSums = remember(rows, columns) {
+        val sums = mutableMapOf<Long, Double>()
+        for (col in columns) {
+            val colType = ColumnType.fromString(col.type)
+            if (colType == ColumnType.CURRENCY || colType == ColumnType.NUMBER) {
+                var sum = 0.0
+                for (row in rows) {
+                    // Resolve formulas first
+                    val resolved = resolveRowValues(row.cells, columns)
+                    val cellValue = resolved[col.id]?.toDoubleOrNull() ?: 0.0
+                    sum += cellValue
+                }
+                sums[col.id] = sum
+            }
+        }
+        sums
+    }
+
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(colors.accentBlue.copy(alpha = 0.06f))
+    ) {
+        // First column: label "统计"
+        Box(
+            modifier = Modifier
+                .width(DATE_COLUMN_WIDTH)
+                .height(ROW_HEIGHT)
+                .background(colors.accentBlue.copy(alpha = 0.08f))
+                .padding(horizontal = 8.dp),
+            contentAlignment = Alignment.CenterStart
+        ) {
+            Text(
+                text = "合计",
+                style = MaterialTheme.typography.bodySmall.copy(fontWeight = androidx.compose.ui.text.font.FontWeight.Bold),
+                color = colors.accentBlue,
+                maxLines = 1
+            )
+        }
+
+        // Scrollable remaining columns
+        Row(modifier = Modifier.horizontalScroll(horizontalScrollState)) {
+            restColumns.forEach { column ->
+                val colType = ColumnType.fromString(column.type)
+                val sumValue = columnSums[column.id]
+                val displayText = if (sumValue != null) {
+                    when (colType) {
+                        ColumnType.CURRENCY -> FormatUtils.formatCurrency(sumValue.toString())
+                        ColumnType.NUMBER -> FormatUtils.formatNumber(sumValue.toString())
+                        else -> ""
+                    }
+                } else {
+                    ""
+                }
+
+                Box(
+                    modifier = Modifier
+                        .width(STANDARD_COLUMN_WIDTH)
+                        .height(ROW_HEIGHT)
+                        .padding(horizontal = 8.dp),
+                    contentAlignment = when (colType) {
+                        ColumnType.CURRENCY, ColumnType.NUMBER, ColumnType.PERCENTAGE -> Alignment.CenterEnd
+                        else -> Alignment.CenterStart
+                    }
+                ) {
+                    if (displayText.isNotBlank()) {
+                        Text(
+                            text = displayText,
+                            style = MaterialTheme.typography.bodySmall.copy(
+                                fontWeight = androidx.compose.ui.text.font.FontWeight.Bold
+                            ),
+                            color = colors.accentBlue,
+                            fontFamily = MonoFontFamily,
+                            textAlign = TextAlign.End,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                }
             }
         }
     }
@@ -670,13 +809,13 @@ private fun AddRowButton(onClick: () -> Unit) {
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = 16.dp)
-            .height(44.dp)
+            .height(52.dp)
             .drawBehind {
                 val dashWidth = 6.dp.toPx()
                 val gapWidth = 4.dp.toPx()
-                val strokeWidth = 1.dp.toPx()
+                val strokeWidth = 1.5.dp.toPx()
                 val pathEffect = PathEffect.dashPathEffect(floatArrayOf(dashWidth, gapWidth))
-                val cornerRadius = 8.dp.toPx()
+                val cornerRadius = 12.dp.toPx()
                 drawRoundRect(
                     color = borderColor,
                     style = androidx.compose.ui.graphics.drawscope.Stroke(
@@ -686,24 +825,25 @@ private fun AddRowButton(onClick: () -> Unit) {
                     cornerRadius = androidx.compose.ui.geometry.CornerRadius(cornerRadius)
                 )
             }
-            .clip(RoundedCornerShape(8.dp))
+            .clip(RoundedCornerShape(12.dp))
             .clickable { onClick() },
         contentAlignment = Alignment.Center
     ) {
         Row(
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(4.dp)
+            horizontalArrangement = Arrangement.spacedBy(6.dp)
         ) {
             Icon(
                 imageVector = Icons.Default.Add,
                 contentDescription = null,
                 tint = colors.accentBlue,
-                modifier = Modifier.size(16.dp)
+                modifier = Modifier.size(20.dp)
             )
             Text(
                 text = "新增一行",
-                style = MaterialTheme.typography.labelMedium,
-                color = colors.accentBlue
+                style = MaterialTheme.typography.bodyMedium,
+                color = colors.accentBlue,
+                fontWeight = androidx.compose.ui.text.font.FontWeight.Medium
             )
         }
     }
@@ -725,10 +865,15 @@ private fun RowFormBottomSheet(
     val colors = AppTheme.colors
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
+    // Filter out formula columns (they are auto-calculated)
+    val editableColumns = remember(columns) {
+        columns.filter { it.formula.isNullOrBlank() }
+    }
+
     // Mutable form values
-    val formValues = remember(existingValues, columns) {
+    val formValues = remember(existingValues, editableColumns) {
         mutableStateMapOf<Long, String>().apply {
-            columns.forEach { col ->
+            editableColumns.forEach { col ->
                 put(col.id, existingValues[col.id] ?: "")
             }
         }
@@ -788,8 +933,8 @@ private fun RowFormBottomSheet(
             Spacer(modifier = Modifier.height(16.dp))
 
             // ── Group columns by group name ──
-            val ungrouped = columns.filter { it.groupName.isNullOrBlank() }
-            val groupedEntries = columns
+            val ungrouped = editableColumns.filter { it.groupName.isNullOrBlank() }
+            val groupedEntries = editableColumns
                 .filter { !it.groupName.isNullOrBlank() }
                 .groupBy { it.groupName!! }
                 .entries

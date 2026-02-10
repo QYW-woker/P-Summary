@@ -42,6 +42,7 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
+import com.nickfinance.dashboard.ui.dashboard.ChartDetailScreen
 import com.nickfinance.dashboard.ui.dashboard.DashboardScreen
 import com.nickfinance.dashboard.ui.dashboard.ChartConfigScreen
 import com.nickfinance.dashboard.ui.settings.SettingsScreen
@@ -60,6 +61,9 @@ sealed class Screen(val route: String) {
     data object ChartConfig : Screen("chart_config?cardId={cardId}&chartType={chartType}") {
         fun createRoute(cardId: Long = -1L, chartType: String = "LINE") =
             "chart_config?cardId=$cardId&chartType=$chartType"
+    }
+    data object ChartDetail : Screen("chart_detail/{cardId}") {
+        fun createRoute(cardId: Long) = "chart_detail/$cardId"
     }
 }
 
@@ -141,6 +145,16 @@ fun AppNavigation(
                     navController = navController
                 )
             }
+            composable(
+                route = Screen.ChartDetail.route,
+                arguments = listOf(navArgument("cardId") { type = NavType.LongType })
+            ) { backStackEntry ->
+                val cardId = backStackEntry.arguments?.getLong("cardId") ?: 0L
+                ChartDetailScreen(
+                    cardId = cardId,
+                    navController = navController
+                )
+            }
         }
     }
 }
@@ -158,7 +172,7 @@ fun BottomNavBar(navController: NavHostController) {
         )
         NavigationBar(
             containerColor = colors.cardSurface,
-            modifier = Modifier.height(58.dp),
+            modifier = Modifier.height(64.dp),
             tonalElevation = 0.dp
         ) {
             bottomNavItems.forEach { item ->
@@ -191,14 +205,14 @@ fun BottomNavBar(navController: NavHostController) {
                             Icon(
                                 imageVector = item.icon,
                                 contentDescription = item.label,
-                                modifier = Modifier.size(20.dp)
+                                modifier = Modifier.size(22.dp)
                             )
                         }
                     },
                     label = {
                         Text(
                             text = item.label,
-                            fontSize = 10.sp
+                            fontSize = 11.sp
                         )
                     },
                     colors = NavigationBarItemDefaults.colors(

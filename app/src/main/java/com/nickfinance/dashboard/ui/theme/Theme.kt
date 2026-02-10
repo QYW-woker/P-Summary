@@ -115,7 +115,7 @@ enum class ThemeMode {
 
 @Composable
 fun FinanceDashboardTheme(
-    themeMode: ThemeMode = ThemeMode.DARK,
+    themeMode: ThemeMode = ThemeMode.LIGHT,
     content: @Composable () -> Unit
 ) {
     val darkTheme = when (themeMode) {

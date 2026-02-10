@@ -140,6 +140,11 @@ fun DashboardScreen(
         } else {
             ChartCardsGrid(
                 cards = cards,
+                onViewCard = { card ->
+                    navController.navigate(
+                        Screen.ChartDetail.createRoute(cardId = card.id)
+                    )
+                },
                 onEditCard = { card ->
                     navController.navigate(
                         Screen.ChartConfig.createRoute(
@@ -221,14 +226,14 @@ private fun DashboardHeader(
         Column {
             Text(
                 text = "财务仪表盘",
-                style = MaterialTheme.typography.titleMedium,
+                style = MaterialTheme.typography.titleLarge,
                 fontWeight = FontWeight.Bold,
                 color = colors.textPrimary
             )
             Spacer(modifier = Modifier.height(2.dp))
             Text(
                 text = "2026年2月 \u00B7 已更新",
-                style = MaterialTheme.typography.bodySmall,
+                style = MaterialTheme.typography.bodyMedium,
                 color = colors.textSecondary
             )
         }
@@ -236,7 +241,7 @@ private fun DashboardHeader(
         IconButton(
             onClick = onAddClick,
             modifier = Modifier
-                .size(36.dp)
+                .size(48.dp)
                 .clip(CircleShape)
                 .background(colors.accentBlueBg)
         ) {
@@ -244,7 +249,7 @@ private fun DashboardHeader(
                 imageVector = Icons.Default.Add,
                 contentDescription = "添加图表",
                 tint = colors.accentBlue,
-                modifier = Modifier.size(20.dp)
+                modifier = Modifier.size(24.dp)
             )
         }
     }
@@ -285,24 +290,24 @@ private fun QuickStatCard(
 
     Column(
         modifier = Modifier
-            .widthIn(min = 120.dp)
-            .clip(RoundedCornerShape(12.dp))
+            .widthIn(min = 140.dp)
+            .clip(RoundedCornerShape(14.dp))
             .background(colors.cardSurface)
-            .border(1.dp, colors.border, RoundedCornerShape(12.dp))
-            .padding(12.dp)
+            .border(1.dp, colors.border, RoundedCornerShape(14.dp))
+            .padding(14.dp)
     ) {
         Text(
             text = stat.label,
-            fontSize = 10.sp,
+            fontSize = 12.sp,
             color = colors.textSecondary,
             maxLines = 1
         )
 
-        Spacer(modifier = Modifier.height(6.dp))
+        Spacer(modifier = Modifier.height(8.dp))
 
         Text(
             text = formattedValue,
-            fontSize = 18.sp,
+            fontSize = 22.sp,
             fontWeight = FontWeight.Bold,
             fontFamily = MonoFontFamily,
             color = displayColor,
@@ -310,7 +315,7 @@ private fun QuickStatCard(
             overflow = TextOverflow.Ellipsis
         )
 
-        Spacer(modifier = Modifier.height(4.dp))
+        Spacer(modifier = Modifier.height(6.dp))
 
         if (stat.changePercent != null) {
             val isPositive = stat.changePercent >= 0
@@ -320,14 +325,14 @@ private fun QuickStatCard(
 
             Text(
                 text = "$arrow $sign${percentFormatter.format(stat.changePercent)}%",
-                fontSize = 9.sp,
+                fontSize = 11.sp,
                 color = changeColor,
                 maxLines = 1
             )
         } else {
             Text(
                 text = "-- %",
-                fontSize = 9.sp,
+                fontSize = 11.sp,
                 color = colors.textTertiary,
                 maxLines = 1
             )
@@ -355,38 +360,39 @@ private fun EmptyDashboardState(
             imageVector = Icons.Default.BarChart,
             contentDescription = null,
             tint = colors.textTertiary,
-            modifier = Modifier.size(48.dp)
+            modifier = Modifier.size(56.dp)
         )
 
         Spacer(modifier = Modifier.height(16.dp))
 
         Text(
             text = "添加图表组件来可视化你的数据",
-            style = MaterialTheme.typography.bodyMedium,
+            style = MaterialTheme.typography.bodyLarge,
             color = colors.textSecondary,
             textAlign = TextAlign.Center
         )
 
-        Spacer(modifier = Modifier.height(16.dp))
+        Spacer(modifier = Modifier.height(20.dp))
 
         TextButton(
             onClick = onAddClick,
             modifier = Modifier
-                .clip(RoundedCornerShape(8.dp))
+                .clip(RoundedCornerShape(12.dp))
                 .background(colors.accentBlueBg)
+                .padding(horizontal = 8.dp, vertical = 2.dp)
         ) {
             Icon(
                 imageVector = Icons.Default.Add,
                 contentDescription = null,
                 tint = colors.accentBlue,
-                modifier = Modifier.size(16.dp)
+                modifier = Modifier.size(20.dp)
             )
-            Spacer(modifier = Modifier.width(4.dp))
+            Spacer(modifier = Modifier.width(6.dp))
             Text(
-                text = "添加",
+                text = "添加图表",
                 color = colors.accentBlue,
                 fontWeight = FontWeight.Medium,
-                fontSize = 14.sp
+                fontSize = 15.sp
             )
         }
     }
@@ -399,6 +405,7 @@ private fun EmptyDashboardState(
 @Composable
 private fun ChartCardsGrid(
     cards: List<DashboardCardEntity>,
+    onViewCard: (DashboardCardEntity) -> Unit,
     onEditCard: (DashboardCardEntity) -> Unit,
     onDeleteCard: (DashboardCardEntity) -> Unit
 ) {
@@ -420,6 +427,7 @@ private fun ChartCardsGrid(
                         Box(modifier = Modifier.weight(1f)) {
                             ChartCard(
                                 card = card,
+                                onClick = { onViewCard(card) },
                                 onEdit = { onEditCard(card) },
                                 onDelete = { onDeleteCard(card) }
                             )
@@ -427,6 +435,7 @@ private fun ChartCardsGrid(
                         Box(modifier = Modifier.weight(1f)) {
                             ChartCard(
                                 card = nextCard,
+                                onClick = { onViewCard(nextCard) },
                                 onEdit = { onEditCard(nextCard) },
                                 onDelete = { onDeleteCard(nextCard) }
                             )
@@ -439,6 +448,7 @@ private fun ChartCardsGrid(
                         Box(modifier = Modifier.weight(1f)) {
                             ChartCard(
                                 card = card,
+                                onClick = { onViewCard(card) },
                                 onEdit = { onEditCard(card) },
                                 onDelete = { onDeleteCard(card) }
                             )
@@ -451,6 +461,7 @@ private fun ChartCardsGrid(
                 // FULL width card
                 ChartCard(
                     card = card,
+                    onClick = { onViewCard(card) },
                     onEdit = { onEditCard(card) },
                     onDelete = { onDeleteCard(card) },
                     modifier = Modifier.fillMaxWidth()
@@ -469,6 +480,7 @@ private fun ChartCardsGrid(
 @Composable
 private fun ChartCard(
     card: DashboardCardEntity,
+    onClick: () -> Unit,
     onEdit: () -> Unit,
     onDelete: () -> Unit,
     modifier: Modifier = Modifier
@@ -485,7 +497,7 @@ private fun ChartCard(
                 .background(colors.cardSurface)
                 .border(1.dp, colors.border, RoundedCornerShape(16.dp))
                 .combinedClickable(
-                    onClick = { },
+                    onClick = onClick,
                     onLongClick = { showMenu = true }
                 )
                 .padding(16.dp)
@@ -499,16 +511,16 @@ private fun ChartCard(
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
                         text = card.title,
-                        fontSize = 13.sp,
+                        fontSize = 15.sp,
                         fontWeight = FontWeight.Bold,
                         color = colors.textPrimary,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )
-                    Spacer(modifier = Modifier.height(2.dp))
+                    Spacer(modifier = Modifier.height(3.dp))
                     Text(
                         text = "${chartType.icon} ${chartType.displayName}",
-                        fontSize = 10.sp,
+                        fontSize = 12.sp,
                         color = colors.textSecondary,
                         maxLines = 1
                     )

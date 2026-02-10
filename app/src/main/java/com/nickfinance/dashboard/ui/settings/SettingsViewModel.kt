@@ -34,7 +34,7 @@ class SettingsViewModel @Inject constructor(
         val ONBOARDING_DONE_KEY = booleanPreferencesKey("onboarding_done")
     }
 
-    private val _themeMode = MutableStateFlow(ThemeMode.DARK)
+    private val _themeMode = MutableStateFlow(ThemeMode.LIGHT)
     val themeMode: StateFlow<ThemeMode> = _themeMode
 
     private val _currencySymbol = MutableStateFlow("¥")
@@ -49,8 +49,8 @@ class SettingsViewModel @Inject constructor(
     init {
         viewModelScope.launch {
             context.dataStore.data.map { prefs ->
-                val modeInt = prefs[THEME_MODE_KEY] ?: 0
-                ThemeMode.entries.getOrElse(modeInt) { ThemeMode.DARK }
+                val modeInt = prefs[THEME_MODE_KEY] ?: 1
+                ThemeMode.entries.getOrElse(modeInt) { ThemeMode.LIGHT }
             }.collect { _themeMode.value = it }
         }
         viewModelScope.launch {
