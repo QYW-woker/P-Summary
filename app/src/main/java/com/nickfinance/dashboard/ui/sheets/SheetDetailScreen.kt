@@ -24,12 +24,14 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ArrowDownward
 import androidx.compose.material.icons.filled.ArrowUpward
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.DateRange
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material3.AlertDialog
@@ -66,6 +68,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateListOf
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -126,8 +129,10 @@ fun SheetDetailScreen(
 
     var showRenameDialog by rememberSaveable { mutableStateOf(false) }
     var showColumnManageSheet by rememberSaveable { mutableStateOf(false) }
-    var editingCell by remember { mutableStateOf<EditingCellState?>(null) }
-    var showDatePicker by remember { mutableStateOf(false) }
+
+    // ── Row form state ──
+    var showRowForm by remember { mutableStateOf(false) }
+    var editingRowId by remember { mutableStateOf<Long?>(null) }
 
     val data = fullData
 
@@ -152,16 +157,15 @@ fun SheetDetailScreen(
             // ── Table ──
             SheetTable(
                 fullData = data,
-                onCellClick = { rowId, column, currentValue ->
-                    if (ColumnType.fromString(column.type) == ColumnType.DATE) {
-                        editingCell = EditingCellState(rowId, column, currentValue)
-                        showDatePicker = true
-                    } else {
-                        editingCell = EditingCellState(rowId, column, currentValue)
-                    }
+                onRowClick = { rowId ->
+                    editingRowId = rowId
+                    showRowForm = true
                 },
                 onDeleteRow = { rowId -> viewModel.deleteRow(rowId) },
-                onAddRow = { viewModel.addRow() },
+                onAddRow = {
+                    editingRowId = null
+                    showRowForm = true
+                },
                 modifier = Modifier.weight(1f)
             )
         } else {
@@ -201,32 +205,31 @@ fun SheetDetailScreen(
         )
     }
 
-    // ── Cell edit dialog (non-date) ──
-    val cell = editingCell
-    if (cell != null && !showDatePicker) {
-        CellEditDialog(
-            column = cell.column,
-            currentValue = cell.currentValue,
-            onDismiss = { editingCell = null },
-            onConfirm = { value ->
-                viewModel.setCellValue(cell.rowId, cell.column.id, value)
-                editingCell = null
-            }
-        )
-    }
+    // ── Row form bottom sheet ──
+    if (showRowForm && data != null && data.columns.isNotEmpty()) {
+        val isEditing = editingRowId != null
+        val existingValues = if (isEditing) {
+            data.rows.find { it.row.id == editingRowId }?.cells ?: emptyMap()
+        } else {
+            emptyMap()
+        }
 
-    // ── Date picker dialog ──
-    if (showDatePicker && cell != null) {
-        SheetDatePickerDialog(
-            currentValue = cell.currentValue,
+        RowFormBottomSheet(
+            columns = data.columns,
+            existingValues = existingValues,
+            isEditing = isEditing,
             onDismiss = {
-                showDatePicker = false
-                editingCell = null
+                showRowForm = false
+                editingRowId = null
             },
-            onConfirm = { value ->
-                viewModel.setCellValue(cell.rowId, cell.column.id, value)
-                showDatePicker = false
-                editingCell = null
+            onSave = { values ->
+                if (isEditing && editingRowId != null) {
+                    viewModel.updateRowValues(editingRowId!!, values)
+                } else {
+                    viewModel.addRowWithValues(values)
+                }
+                showRowForm = false
+                editingRowId = null
             }
         )
     }
@@ -245,16 +248,6 @@ fun SheetDetailScreen(
         )
     }
 }
-
-// ══════════════════════════════════════════════════
-// Data class for cell editing state
-// ══════════════════════════════════════════════════
-
-private data class EditingCellState(
-    val rowId: Long,
-    val column: ColumnDefEntity,
-    val currentValue: String
-)
 
 // ══════════════════════════════════════════════════
 // Top bar
@@ -368,7 +361,7 @@ private fun GroupLegendRow(columns: List<ColumnDefEntity>) {
 @Composable
 private fun SheetTable(
     fullData: SheetFullData,
-    onCellClick: (rowId: Long, column: ColumnDefEntity, currentValue: String) -> Unit,
+    onRowClick: (rowId: Long) -> Unit,
     onDeleteRow: (rowId: Long) -> Unit,
     onAddRow: () -> Unit,
     modifier: Modifier = Modifier
@@ -394,14 +387,11 @@ private fun SheetTable(
                     .fillMaxWidth()
                     .background(colors.cardSurface)
             ) {
-                // Frozen first column header
                 HeaderCell(
                     column = firstColumn,
                     width = DATE_COLUMN_WIDTH,
                     isFirst = true
                 )
-
-                // Scrollable remaining column headers
                 Row(
                     modifier = Modifier.horizontalScroll(horizontalScrollState)
                 ) {
@@ -414,7 +404,6 @@ private fun SheetTable(
                     }
                 }
             }
-
             HorizontalDivider(thickness = 1.dp, color = colors.border)
         }
 
@@ -422,16 +411,15 @@ private fun SheetTable(
         itemsIndexed(
             items = rows,
             key = { _, rowWithCells -> rowWithCells.row.id }
-        ) { index, rowWithCells ->
+        ) { _, rowWithCells ->
             SwipeToDeleteRow(
                 rowWithCells = rowWithCells,
                 firstColumn = firstColumn,
                 restColumns = restColumns,
                 horizontalScrollState = horizontalScrollState,
-                onCellClick = onCellClick,
+                onRowClick = { onRowClick(rowWithCells.row.id) },
                 onDelete = { onDeleteRow(rowWithCells.row.id) }
             )
-
             HorizontalDivider(
                 thickness = 0.5.dp,
                 color = colors.border.copy(alpha = 0.5f)
@@ -468,14 +456,9 @@ private fun HeaderCell(
             .width(width)
             .height(ROW_HEIGHT)
             .then(
-                if (isFirst) {
-                    Modifier.background(colors.cardSurface)
-                } else {
-                    Modifier
-                }
+                if (isFirst) Modifier.background(colors.cardSurface) else Modifier
             )
             .drawBehind {
-                // 2dp colored bar at bottom for group color
                 if (groupColor != Color.Transparent) {
                     val barHeight = 2.dp.toPx()
                     drawRect(
@@ -509,7 +492,7 @@ private fun SwipeToDeleteRow(
     firstColumn: ColumnDefEntity,
     restColumns: List<ColumnDefEntity>,
     horizontalScrollState: androidx.compose.foundation.ScrollState,
-    onCellClick: (rowId: Long, column: ColumnDefEntity, currentValue: String) -> Unit,
+    onRowClick: () -> Unit,
     onDelete: () -> Unit
 ) {
     val colors = AppTheme.colors
@@ -537,7 +520,6 @@ private fun SwipeToDeleteRow(
                 },
                 label = "swipe_bg"
             )
-
             Box(
                 modifier = Modifier
                     .fillMaxSize()
@@ -558,7 +540,7 @@ private fun SwipeToDeleteRow(
                 firstColumn = firstColumn,
                 restColumns = restColumns,
                 horizontalScrollState = horizontalScrollState,
-                onCellClick = onCellClick
+                onRowClick = onRowClick
             )
         }
     )
@@ -574,7 +556,7 @@ private fun DataRow(
     firstColumn: ColumnDefEntity,
     restColumns: List<ColumnDefEntity>,
     horizontalScrollState: androidx.compose.foundation.ScrollState,
-    onCellClick: (rowId: Long, column: ColumnDefEntity, currentValue: String) -> Unit
+    onRowClick: () -> Unit
 ) {
     val colors = AppTheme.colors
 
@@ -589,15 +571,8 @@ private fun DataRow(
             column = firstColumn,
             width = DATE_COLUMN_WIDTH,
             isFirst = true,
-            onClick = {
-                onCellClick(
-                    rowWithCells.row.id,
-                    firstColumn,
-                    rowWithCells.cells[firstColumn.id] ?: ""
-                )
-            }
+            onClick = onRowClick
         )
-
         // Scrollable remaining cells
         Row(
             modifier = Modifier.horizontalScroll(horizontalScrollState)
@@ -608,13 +583,7 @@ private fun DataRow(
                     column = column,
                     width = STANDARD_COLUMN_WIDTH,
                     isFirst = false,
-                    onClick = {
-                        onCellClick(
-                            rowWithCells.row.id,
-                            column,
-                            rowWithCells.cells[column.id] ?: ""
-                        )
-                    }
+                    onClick = onRowClick
                 )
             }
         }
@@ -637,7 +606,7 @@ private fun DataCell(
     val colType = ColumnType.fromString(column.type)
 
     val displayText = when {
-        value.isBlank() -> "\u2014" // em dash
+        value.isBlank() -> "\u2014"
         else -> when (colType) {
             ColumnType.CURRENCY -> FormatUtils.formatCurrency(value)
             ColumnType.PERCENTAGE -> FormatUtils.formatPercentage(value)
@@ -649,21 +618,14 @@ private fun DataCell(
 
     val isNegative = column.isNegativeRed && FormatUtils.isNegative(value)
     val isEmpty = value.isBlank()
-
     val textColor = when {
         isEmpty -> colors.textTertiary
         isNegative -> colors.semanticRed
         else -> colors.textPrimary
     }
-
     val fontFamily: FontFamily? = when (colType) {
         ColumnType.CURRENCY, ColumnType.NUMBER, ColumnType.PERCENTAGE -> MonoFontFamily
         else -> null
-    }
-
-    val textAlign = when (colType) {
-        ColumnType.CURRENCY, ColumnType.NUMBER, ColumnType.PERCENTAGE -> TextAlign.End
-        else -> TextAlign.Start
     }
 
     Box(
@@ -671,11 +633,7 @@ private fun DataCell(
             .width(width)
             .height(ROW_HEIGHT)
             .then(
-                if (isFirst) {
-                    Modifier.background(colors.cardSurface)
-                } else {
-                    Modifier
-                }
+                if (isFirst) Modifier.background(colors.cardSurface) else Modifier
             )
             .clickable { onClick() }
             .padding(horizontal = 8.dp),
@@ -689,7 +647,10 @@ private fun DataCell(
             style = MaterialTheme.typography.bodySmall,
             color = textColor,
             fontFamily = fontFamily,
-            textAlign = textAlign,
+            textAlign = when (colType) {
+                ColumnType.CURRENCY, ColumnType.NUMBER, ColumnType.PERCENTAGE -> TextAlign.End
+                else -> TextAlign.Start
+            },
             maxLines = 1,
             overflow = TextOverflow.Ellipsis
         )
@@ -704,7 +665,6 @@ private fun DataCell(
 private fun AddRowButton(onClick: () -> Unit) {
     val colors = AppTheme.colors
     val borderColor = colors.border
-    val density = LocalDensity.current
 
     Box(
         modifier = Modifier
@@ -717,7 +677,6 @@ private fun AddRowButton(onClick: () -> Unit) {
                 val strokeWidth = 1.dp.toPx()
                 val pathEffect = PathEffect.dashPathEffect(floatArrayOf(dashWidth, gapWidth))
                 val cornerRadius = 8.dp.toPx()
-
                 drawRoundRect(
                     color = borderColor,
                     style = androidx.compose.ui.graphics.drawscope.Stroke(
@@ -747,6 +706,385 @@ private fun AddRowButton(onClick: () -> Unit) {
                 color = colors.accentBlue
             )
         }
+    }
+}
+
+// ══════════════════════════════════════════════════
+// Row form bottom sheet (form-based data entry)
+// ══════════════════════════════════════════════════
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun RowFormBottomSheet(
+    columns: List<ColumnDefEntity>,
+    existingValues: Map<Long, String>,
+    isEditing: Boolean,
+    onDismiss: () -> Unit,
+    onSave: (Map<Long, String>) -> Unit
+) {
+    val colors = AppTheme.colors
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+
+    // Mutable form values
+    val formValues = remember(existingValues, columns) {
+        mutableStateMapOf<Long, String>().apply {
+            columns.forEach { col ->
+                put(col.id, existingValues[col.id] ?: "")
+            }
+        }
+    }
+
+    // Date picker state
+    var datePickerColumnId by remember { mutableStateOf<Long?>(null) }
+
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = sheetState,
+        containerColor = colors.cardSurface,
+        dragHandle = {
+            Column(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Spacer(modifier = Modifier.height(8.dp))
+                Box(
+                    modifier = Modifier
+                        .width(36.dp)
+                        .height(4.dp)
+                        .clip(RoundedCornerShape(2.dp))
+                        .background(colors.textTertiary.copy(alpha = 0.4f))
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+            }
+        }
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .verticalScroll(rememberScrollState())
+                .padding(horizontal = 20.dp)
+                .padding(bottom = 40.dp)
+        ) {
+            // ── Title row ──
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = if (isEditing) "编辑记录" else "新增记录",
+                    style = MaterialTheme.typography.titleMedium,
+                    color = colors.textPrimary
+                )
+                IconButton(onClick = onDismiss) {
+                    Icon(
+                        imageVector = Icons.Default.Close,
+                        contentDescription = "关闭",
+                        tint = colors.textSecondary
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            // ── Group columns by group name ──
+            val ungrouped = columns.filter { it.groupName.isNullOrBlank() }
+            val groupedEntries = columns
+                .filter { !it.groupName.isNullOrBlank() }
+                .groupBy { it.groupName!! }
+                .entries
+                .toList()
+
+            // Ungrouped columns first
+            ungrouped.forEach { col ->
+                FormFieldItem(
+                    column = col,
+                    value = formValues[col.id] ?: "",
+                    onValueChange = { formValues[col.id] = it },
+                    onDatePickerRequest = { datePickerColumnId = col.id }
+                )
+                Spacer(modifier = Modifier.height(14.dp))
+            }
+
+            // Grouped columns with section headers
+            groupedEntries.forEach { (groupName, cols) ->
+                val groupColorHex = cols.firstOrNull()?.groupColor ?: ""
+
+                // Group section header
+                if (ungrouped.isNotEmpty() || groupedEntries.indexOf(groupedEntries.find { it.key == groupName }) > 0) {
+                    Spacer(modifier = Modifier.height(6.dp))
+                }
+
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier.padding(bottom = 10.dp)
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .width(3.dp)
+                            .height(16.dp)
+                            .clip(RoundedCornerShape(2.dp))
+                            .background(
+                                if (groupColorHex.isNotBlank()) parseHexColor(groupColorHex)
+                                else colors.textTertiary
+                            )
+                    )
+                    Text(
+                        text = groupName,
+                        style = MaterialTheme.typography.labelLarge,
+                        color = if (groupColorHex.isNotBlank()) parseHexColor(groupColorHex)
+                        else colors.textSecondary
+                    )
+                }
+
+                cols.forEach { col ->
+                    FormFieldItem(
+                        column = col,
+                        value = formValues[col.id] ?: "",
+                        onValueChange = { formValues[col.id] = it },
+                        onDatePickerRequest = { datePickerColumnId = col.id }
+                    )
+                    Spacer(modifier = Modifier.height(14.dp))
+                }
+            }
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            // ── Save button ──
+            Button(
+                onClick = { onSave(formValues.toMap()) },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(48.dp),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = colors.accentBlue
+                ),
+                shape = RoundedCornerShape(12.dp)
+            ) {
+                Text(
+                    text = if (isEditing) "保存修改" else "添加记录",
+                    fontSize = 15.sp
+                )
+            }
+        }
+    }
+
+    // ── Date picker dialog within form ──
+    val dpColId = datePickerColumnId
+    if (dpColId != null) {
+        FormDatePickerDialog(
+            currentValue = formValues[dpColId] ?: "",
+            onDismiss = { datePickerColumnId = null },
+            onConfirm = { value ->
+                formValues[dpColId] = value
+                datePickerColumnId = null
+            }
+        )
+    }
+}
+
+// ══════════════════════════════════════════════════
+// Form field item (renders appropriate input per type)
+// ══════════════════════════════════════════════════
+
+@Composable
+private fun FormFieldItem(
+    column: ColumnDefEntity,
+    value: String,
+    onValueChange: (String) -> Unit,
+    onDatePickerRequest: () -> Unit
+) {
+    val colors = AppTheme.colors
+    val colType = ColumnType.fromString(column.type)
+
+    when (colType) {
+        ColumnType.DATE -> {
+            // Date field: read-only text field with calendar icon, clickable
+            Box(modifier = Modifier.fillMaxWidth()) {
+                OutlinedTextField(
+                    value = value,
+                    onValueChange = {},
+                    readOnly = true,
+                    singleLine = true,
+                    label = { Text(column.name) },
+                    placeholder = { Text("点击选择日期", color = colors.textTertiary) },
+                    trailingIcon = {
+                        Icon(
+                            imageVector = Icons.Default.DateRange,
+                            contentDescription = "选择日期",
+                            tint = colors.accentBlue,
+                            modifier = Modifier.size(20.dp)
+                        )
+                    },
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedTextColor = colors.textPrimary,
+                        unfocusedTextColor = colors.textPrimary,
+                        focusedBorderColor = colors.accentBlue,
+                        unfocusedBorderColor = colors.border,
+                        focusedLabelColor = colors.accentBlue,
+                        unfocusedLabelColor = colors.textSecondary
+                    ),
+                    modifier = Modifier.fillMaxWidth()
+                )
+                // Transparent overlay to capture clicks
+                Box(
+                    modifier = Modifier
+                        .matchParentSize()
+                        .clickable { onDatePickerRequest() }
+                )
+            }
+        }
+
+        ColumnType.CURRENCY -> {
+            OutlinedTextField(
+                value = value,
+                onValueChange = { newValue ->
+                    if (newValue.isEmpty() || newValue.matches(Regex("^-?\\d*\\.?\\d*$"))) {
+                        onValueChange(newValue)
+                    }
+                },
+                singleLine = true,
+                label = { Text(column.name) },
+                placeholder = { Text("输入金额", color = colors.textTertiary) },
+                prefix = { Text("¥", color = colors.textSecondary) },
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                colors = OutlinedTextFieldDefaults.colors(
+                    focusedTextColor = colors.textPrimary,
+                    unfocusedTextColor = colors.textPrimary,
+                    cursorColor = colors.accentBlue,
+                    focusedBorderColor = colors.accentBlue,
+                    unfocusedBorderColor = colors.border,
+                    focusedLabelColor = colors.accentBlue,
+                    unfocusedLabelColor = colors.textSecondary
+                ),
+                modifier = Modifier.fillMaxWidth()
+            )
+        }
+
+        ColumnType.PERCENTAGE -> {
+            OutlinedTextField(
+                value = value,
+                onValueChange = { newValue ->
+                    if (newValue.isEmpty() || newValue.matches(Regex("^-?\\d*\\.?\\d*$"))) {
+                        onValueChange(newValue)
+                    }
+                },
+                singleLine = true,
+                label = { Text(column.name) },
+                placeholder = { Text("输入百分比", color = colors.textTertiary) },
+                suffix = { Text("%", color = colors.textSecondary) },
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                colors = OutlinedTextFieldDefaults.colors(
+                    focusedTextColor = colors.textPrimary,
+                    unfocusedTextColor = colors.textPrimary,
+                    cursorColor = colors.accentBlue,
+                    focusedBorderColor = colors.accentBlue,
+                    unfocusedBorderColor = colors.border,
+                    focusedLabelColor = colors.accentBlue,
+                    unfocusedLabelColor = colors.textSecondary
+                ),
+                modifier = Modifier.fillMaxWidth()
+            )
+        }
+
+        ColumnType.NUMBER -> {
+            OutlinedTextField(
+                value = value,
+                onValueChange = { newValue ->
+                    if (newValue.isEmpty() || newValue.matches(Regex("^-?\\d*\\.?\\d*$"))) {
+                        onValueChange(newValue)
+                    }
+                },
+                singleLine = true,
+                label = { Text(column.name) },
+                placeholder = { Text("输入数值", color = colors.textTertiary) },
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                colors = OutlinedTextFieldDefaults.colors(
+                    focusedTextColor = colors.textPrimary,
+                    unfocusedTextColor = colors.textPrimary,
+                    cursorColor = colors.accentBlue,
+                    focusedBorderColor = colors.accentBlue,
+                    unfocusedBorderColor = colors.border,
+                    focusedLabelColor = colors.accentBlue,
+                    unfocusedLabelColor = colors.textSecondary
+                ),
+                modifier = Modifier.fillMaxWidth()
+            )
+        }
+
+        ColumnType.TEXT -> {
+            OutlinedTextField(
+                value = value,
+                onValueChange = onValueChange,
+                singleLine = true,
+                label = { Text(column.name) },
+                placeholder = { Text("输入内容", color = colors.textTertiary) },
+                colors = OutlinedTextFieldDefaults.colors(
+                    focusedTextColor = colors.textPrimary,
+                    unfocusedTextColor = colors.textPrimary,
+                    cursorColor = colors.accentBlue,
+                    focusedBorderColor = colors.accentBlue,
+                    unfocusedBorderColor = colors.border,
+                    focusedLabelColor = colors.accentBlue,
+                    unfocusedLabelColor = colors.textSecondary
+                ),
+                modifier = Modifier.fillMaxWidth()
+            )
+        }
+    }
+}
+
+// ══════════════════════════════════════════════════
+// Date picker dialog (used within row form)
+// ══════════════════════════════════════════════════
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun FormDatePickerDialog(
+    currentValue: String,
+    onDismiss: () -> Unit,
+    onConfirm: (String) -> Unit
+) {
+    val colors = AppTheme.colors
+    val initialMillis = try {
+        val parts = currentValue.split("/")
+        if (parts.size == 3) {
+            val sdf = SimpleDateFormat("yyyy/M/d", Locale.getDefault())
+            sdf.parse(currentValue)?.time
+        } else null
+    } catch (e: Exception) {
+        null
+    }
+
+    val datePickerState = rememberDatePickerState(
+        initialSelectedDateMillis = initialMillis ?: System.currentTimeMillis()
+    )
+
+    DatePickerDialog(
+        onDismissRequest = onDismiss,
+        confirmButton = {
+            TextButton(
+                onClick = {
+                    val millis = datePickerState.selectedDateMillis
+                    if (millis != null) {
+                        val sdf = SimpleDateFormat("yyyy/M/d", Locale.getDefault())
+                        onConfirm(sdf.format(Date(millis)))
+                    } else {
+                        onDismiss()
+                    }
+                }
+            ) {
+                Text("确定", color = colors.accentBlue)
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("取消", color = colors.textSecondary)
+            }
+        }
+    ) {
+        DatePicker(state = datePickerState)
     }
 }
 
@@ -805,130 +1143,6 @@ private fun RenameSheetDialog(
 }
 
 // ══════════════════════════════════════════════════
-// Cell edit dialog (non-date types)
-// ══════════════════════════════════════════════════
-
-@Composable
-private fun CellEditDialog(
-    column: ColumnDefEntity,
-    currentValue: String,
-    onDismiss: () -> Unit,
-    onConfirm: (String) -> Unit
-) {
-    val colors = AppTheme.colors
-    val colType = ColumnType.fromString(column.type)
-    var value by rememberSaveable { mutableStateOf(currentValue) }
-
-    val keyboardType = when (colType) {
-        ColumnType.CURRENCY, ColumnType.NUMBER, ColumnType.PERCENTAGE -> KeyboardType.Decimal
-        else -> KeyboardType.Text
-    }
-
-    val label = when (colType) {
-        ColumnType.CURRENCY -> "金额"
-        ColumnType.PERCENTAGE -> "百分比值"
-        ColumnType.NUMBER -> "数值"
-        ColumnType.TEXT -> "文本"
-        ColumnType.DATE -> "日期"
-    }
-
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        containerColor = colors.cardSurface,
-        title = {
-            Text(
-                text = "编辑 ${column.name}",
-                color = colors.textPrimary
-            )
-        },
-        text = {
-            OutlinedTextField(
-                value = value,
-                onValueChange = { value = it },
-                singleLine = true,
-                label = { Text(label, color = colors.textTertiary) },
-                keyboardOptions = KeyboardOptions(keyboardType = keyboardType),
-                colors = OutlinedTextFieldDefaults.colors(
-                    focusedTextColor = colors.textPrimary,
-                    unfocusedTextColor = colors.textPrimary,
-                    cursorColor = colors.accentBlue,
-                    focusedBorderColor = colors.accentBlue,
-                    unfocusedBorderColor = colors.border,
-                    focusedLabelColor = colors.accentBlue,
-                    unfocusedLabelColor = colors.textTertiary
-                ),
-                modifier = Modifier.fillMaxWidth()
-            )
-        },
-        confirmButton = {
-            TextButton(onClick = { onConfirm(value.trim()) }) {
-                Text("确定", color = colors.accentBlue)
-            }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss) {
-                Text("取消", color = colors.textSecondary)
-            }
-        }
-    )
-}
-
-// ══════════════════════════════════════════════════
-// Date picker dialog
-// ══════════════════════════════════════════════════
-
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-private fun SheetDatePickerDialog(
-    currentValue: String,
-    onDismiss: () -> Unit,
-    onConfirm: (String) -> Unit
-) {
-    val colors = AppTheme.colors
-
-    // Parse current date value to millis for initial selection
-    val initialMillis = try {
-        val parts = currentValue.split("/")
-        if (parts.size == 3) {
-            val sdf = SimpleDateFormat("yyyy/M/d", Locale.getDefault())
-            sdf.parse(currentValue)?.time
-        } else null
-    } catch (e: Exception) {
-        null
-    }
-
-    val datePickerState = rememberDatePickerState(
-        initialSelectedDateMillis = initialMillis ?: System.currentTimeMillis()
-    )
-
-    DatePickerDialog(
-        onDismissRequest = onDismiss,
-        confirmButton = {
-            TextButton(
-                onClick = {
-                    val millis = datePickerState.selectedDateMillis
-                    if (millis != null) {
-                        val sdf = SimpleDateFormat("yyyy/M/d", Locale.getDefault())
-                        onConfirm(sdf.format(Date(millis)))
-                    } else {
-                        onDismiss()
-                    }
-                }
-            ) {
-                Text("确定", color = colors.accentBlue)
-            }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss) {
-                Text("取消", color = colors.textSecondary)
-            }
-        }
-    ) {
-        DatePicker(state = datePickerState)
-    }
-}
-
-// ══════════════════════════════════════════════════
 // Column manage bottom sheet
 // ══════════════════════════════════════════════════
 
@@ -949,10 +1163,8 @@ private fun ColumnManageSheet(
     var showColumnEditDialog by remember { mutableStateOf(false) }
     var editingColumn by remember { mutableStateOf<ColumnDefEntity?>(null) }
 
-    // Mutable list for reordering
     val reorderableColumns = remember(columns) { mutableStateListOf(*columns.toTypedArray()) }
 
-    // Sync when columns change from outside
     LaunchedEffect(columns) {
         reorderableColumns.clear()
         reorderableColumns.addAll(columns)
@@ -984,7 +1196,6 @@ private fun ColumnManageSheet(
                 .fillMaxWidth()
                 .padding(bottom = 32.dp)
         ) {
-            // Title bar
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -1008,7 +1219,6 @@ private fun ColumnManageSheet(
 
             Spacer(modifier = Modifier.height(8.dp))
 
-            // Column list
             LazyColumn(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -1057,7 +1267,6 @@ private fun ColumnManageSheet(
 
             Spacer(modifier = Modifier.height(12.dp))
 
-            // Add column button with dashed border
             AddColumnButton(
                 onClick = {
                     editingColumn = null
@@ -1067,7 +1276,6 @@ private fun ColumnManageSheet(
         }
     }
 
-    // Column edit/add dialog
     if (showColumnEditDialog) {
         ColumnEditDialog(
             existingColumn = editingColumn,
@@ -1121,7 +1329,6 @@ private fun ColumnManageItem(
     } else {
         colors.textTertiary
     }
-
     val colType = ColumnType.fromString(column.type)
 
     Row(
@@ -1130,7 +1337,6 @@ private fun ColumnManageItem(
             .padding(vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        // Group color bar
         Box(
             modifier = Modifier
                 .width(3.dp)
@@ -1138,10 +1344,7 @@ private fun ColumnManageItem(
                 .clip(RoundedCornerShape(2.dp))
                 .background(groupColor)
         )
-
         Spacer(modifier = Modifier.width(12.dp))
-
-        // Column info
         Column(modifier = Modifier.weight(1f)) {
             Text(
                 text = column.name,
@@ -1163,13 +1366,7 @@ private fun ColumnManageItem(
                 color = colors.textTertiary
             )
         }
-
-        // Reorder buttons
-        IconButton(
-            onClick = onMoveUp,
-            enabled = canMoveUp,
-            modifier = Modifier.size(32.dp)
-        ) {
+        IconButton(onClick = onMoveUp, enabled = canMoveUp, modifier = Modifier.size(32.dp)) {
             Icon(
                 imageVector = Icons.Default.ArrowUpward,
                 contentDescription = "上移",
@@ -1177,12 +1374,7 @@ private fun ColumnManageItem(
                 modifier = Modifier.size(16.dp)
             )
         }
-
-        IconButton(
-            onClick = onMoveDown,
-            enabled = canMoveDown,
-            modifier = Modifier.size(32.dp)
-        ) {
+        IconButton(onClick = onMoveDown, enabled = canMoveDown, modifier = Modifier.size(32.dp)) {
             Icon(
                 imageVector = Icons.Default.ArrowDownward,
                 contentDescription = "下移",
@@ -1190,12 +1382,7 @@ private fun ColumnManageItem(
                 modifier = Modifier.size(16.dp)
             )
         }
-
-        // Edit button
-        IconButton(
-            onClick = onEdit,
-            modifier = Modifier.size(32.dp)
-        ) {
+        IconButton(onClick = onEdit, modifier = Modifier.size(32.dp)) {
             Icon(
                 imageVector = Icons.Default.Edit,
                 contentDescription = "编辑",
@@ -1203,12 +1390,7 @@ private fun ColumnManageItem(
                 modifier = Modifier.size(16.dp)
             )
         }
-
-        // Delete button
-        IconButton(
-            onClick = onDelete,
-            modifier = Modifier.size(32.dp)
-        ) {
+        IconButton(onClick = onDelete, modifier = Modifier.size(32.dp)) {
             Icon(
                 imageVector = Icons.Default.Delete,
                 contentDescription = "删除",
@@ -1239,7 +1421,6 @@ private fun AddColumnButton(onClick: () -> Unit) {
                 val strokeWidth = 1.dp.toPx()
                 val pathEffect = PathEffect.dashPathEffect(floatArrayOf(dashWidth, gapWidth))
                 val cornerRadius = 8.dp.toPx()
-
                 drawRoundRect(
                     color = borderColor,
                     style = androidx.compose.ui.graphics.drawscope.Stroke(
@@ -1280,7 +1461,7 @@ private fun AddColumnButton(onClick: () -> Unit) {
 @Composable
 private fun ColumnEditDialog(
     existingColumn: ColumnDefEntity?,
-    existingGroups: List<Pair<String, String>>, // name to color hex
+    existingGroups: List<Pair<String, String>>,
     onDismiss: () -> Unit,
     onConfirm: (name: String, type: String, groupName: String?, groupColor: String?, isNegativeRed: Boolean) -> Unit
 ) {
@@ -1295,12 +1476,9 @@ private fun ColumnEditDialog(
     var isNewGroup by rememberSaveable { mutableStateOf(false) }
     var newGroupName by rememberSaveable { mutableStateOf("") }
 
-    // Type dropdown state
     var typeExpanded by remember { mutableStateOf(false) }
-    // Group dropdown state
     var groupExpanded by remember { mutableStateOf(false) }
 
-    // Selected color index for presets
     var selectedColorIndex by remember {
         mutableIntStateOf(
             if (groupColor.isNotBlank()) {
@@ -1327,7 +1505,6 @@ private fun ColumnEditDialog(
                 modifier = Modifier.fillMaxWidth(),
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                // Column name
                 OutlinedTextField(
                     value = name,
                     onValueChange = { name = it },
@@ -1346,7 +1523,6 @@ private fun ColumnEditDialog(
                     modifier = Modifier.fillMaxWidth()
                 )
 
-                // Data type dropdown
                 ExposedDropdownMenuBox(
                     expanded = typeExpanded,
                     onExpandedChange = { typeExpanded = it }
@@ -1377,12 +1553,7 @@ private fun ColumnEditDialog(
                     ) {
                         ColumnType.entries.forEach { type ->
                             DropdownMenuItem(
-                                text = {
-                                    Text(
-                                        text = type.displayName,
-                                        color = colors.textPrimary
-                                    )
-                                },
+                                text = { Text(text = type.displayName, color = colors.textPrimary) },
                                 onClick = {
                                     selectedType = type.name
                                     typeExpanded = false
@@ -1392,12 +1563,9 @@ private fun ColumnEditDialog(
                     }
                 }
 
-                // Group dropdown
                 val groupOptions = buildList {
                     add("无分组" to "")
-                    existingGroups.forEach { (gName, gColor) ->
-                        add(gName to gColor)
-                    }
+                    existingGroups.forEach { (gName, gColor) -> add(gName to gColor) }
                     add("新建分组" to "__new__")
                 }
 
@@ -1443,21 +1611,9 @@ private fun ColumnEditDialog(
                                 },
                                 onClick = {
                                     when (value) {
-                                        "" -> {
-                                            isNewGroup = false
-                                            groupName = ""
-                                            groupColor = ""
-                                        }
-                                        "__new__" -> {
-                                            isNewGroup = true
-                                            groupName = ""
-                                            newGroupName = ""
-                                        }
-                                        else -> {
-                                            isNewGroup = false
-                                            groupName = label
-                                            groupColor = value
-                                        }
+                                        "" -> { isNewGroup = false; groupName = ""; groupColor = "" }
+                                        "__new__" -> { isNewGroup = true; groupName = ""; newGroupName = "" }
+                                        else -> { isNewGroup = false; groupName = label; groupColor = value }
                                     }
                                     groupExpanded = false
                                 }
@@ -1466,7 +1622,6 @@ private fun ColumnEditDialog(
                     }
                 }
 
-                // New group name field (shown when creating new group)
                 if (isNewGroup) {
                     OutlinedTextField(
                         value = newGroupName,
@@ -1487,7 +1642,6 @@ private fun ColumnEditDialog(
                     )
                 }
 
-                // Group color selection (shown when group is set or new)
                 if (groupName.isNotBlank() || isNewGroup) {
                     Column {
                         Text(
@@ -1496,9 +1650,7 @@ private fun ColumnEditDialog(
                             color = colors.textSecondary
                         )
                         Spacer(modifier = Modifier.height(8.dp))
-                        Row(
-                            horizontalArrangement = Arrangement.spacedBy(12.dp)
-                        ) {
+                        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                             GroupColorPresets.forEachIndexed { index, presetColor ->
                                 val isSelected = index == selectedColorIndex
                                 Box(
@@ -1507,15 +1659,8 @@ private fun ColumnEditDialog(
                                         .clip(CircleShape)
                                         .background(presetColor)
                                         .then(
-                                            if (isSelected) {
-                                                Modifier.border(
-                                                    width = 2.dp,
-                                                    color = colors.textPrimary,
-                                                    shape = CircleShape
-                                                )
-                                            } else {
-                                                Modifier
-                                            }
+                                            if (isSelected) Modifier.border(2.dp, colors.textPrimary, CircleShape)
+                                            else Modifier
                                         )
                                         .clickable {
                                             selectedColorIndex = index
@@ -1527,23 +1672,14 @@ private fun ColumnEditDialog(
                     }
                 }
 
-                // Negative red toggle
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Column {
-                        Text(
-                            text = "负值标红",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = colors.textPrimary
-                        )
-                        Text(
-                            text = "负数以红色显示",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = colors.textTertiary
-                        )
+                        Text("负值标红", style = MaterialTheme.typography.bodyMedium, color = colors.textPrimary)
+                        Text("负数以红色显示", style = MaterialTheme.typography.labelSmall, color = colors.textTertiary)
                     }
                     Switch(
                         checked = isNegativeRed,
@@ -1579,10 +1715,7 @@ private fun ColumnEditDialog(
                 },
                 enabled = name.isNotBlank()
             ) {
-                Text(
-                    text = "确定",
-                    color = if (name.isNotBlank()) colors.accentBlue else colors.textTertiary
-                )
+                Text("确定", color = if (name.isNotBlank()) colors.accentBlue else colors.textTertiary)
             }
         },
         dismissButton = {

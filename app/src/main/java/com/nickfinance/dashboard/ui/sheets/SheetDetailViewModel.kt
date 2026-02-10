@@ -34,6 +34,25 @@ class SheetDetailViewModel @Inject constructor(
         }
     }
 
+    fun addRowWithValues(values: Map<Long, String>) {
+        viewModelScope.launch {
+            val rowId = sheetRepository.addRow(sheetId)
+            values.forEach { (columnId, value) ->
+                if (value.isNotBlank()) {
+                    sheetRepository.setCellValue(rowId, columnId, value)
+                }
+            }
+        }
+    }
+
+    fun updateRowValues(rowId: Long, values: Map<Long, String>) {
+        viewModelScope.launch {
+            values.forEach { (columnId, value) ->
+                sheetRepository.setCellValue(rowId, columnId, value)
+            }
+        }
+    }
+
     fun deleteRow(rowId: Long) {
         viewModelScope.launch {
             sheetRepository.deleteRow(rowId)
