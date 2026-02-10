@@ -26,7 +26,9 @@ object AppModule {
             context,
             AppDatabase::class.java,
             "finance_dashboard.db"
-        ).build()
+        )
+            .addMigrations(AppDatabase.MIGRATION_1_2)
+            .build()
     }
 
     @Provides

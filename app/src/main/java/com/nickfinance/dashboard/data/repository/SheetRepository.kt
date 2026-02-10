@@ -64,7 +64,8 @@ class SheetRepository @Inject constructor(
         groupName: String? = null,
         groupColor: String? = null,
         isNegativeRed: Boolean = false,
-        formula: String? = null
+        formula: String? = null,
+        columnRole: String? = null
     ): Long {
         val maxOrder = columnDefDao.getMaxSortOrder(sheetId) ?: -1
         return columnDefDao.insertColumn(
@@ -76,7 +77,8 @@ class SheetRepository @Inject constructor(
                 groupColor = groupColor,
                 sortOrder = maxOrder + 1,
                 isNegativeRed = isNegativeRed,
-                formula = formula
+                formula = formula,
+                columnRole = columnRole
             )
         )
     }
@@ -174,7 +176,8 @@ class SheetRepository @Inject constructor(
                 groupColor = col.groupColor,
                 sortOrder = index,
                 isNegativeRed = col.isNegativeRed,
-                formula = col.formula
+                formula = col.formula,
+                columnRole = col.columnRole
             )
         }
         columnDefDao.insertColumns(columnEntities)

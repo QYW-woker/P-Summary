@@ -25,5 +25,6 @@ data class ColumnDefEntity(
     val sortOrder: Int = 0,
     val isRequired: Boolean = false,
     val formula: String? = null,
-    val isNegativeRed: Boolean = false
+    val isNegativeRed: Boolean = false,
+    val columnRole: String? = null // NONE / INCOME / EXPENSE / ASSET / LIABILITY / INVESTMENT
 )

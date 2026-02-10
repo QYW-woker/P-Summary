@@ -91,6 +91,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.navigation.NavController
+import com.nickfinance.dashboard.data.local.converter.ColumnRole
 import com.nickfinance.dashboard.data.local.converter.ColumnType
 import com.nickfinance.dashboard.data.local.entity.ColumnDefEntity
 import com.nickfinance.dashboard.data.model.RowWithCells
@@ -240,8 +241,8 @@ fun SheetDetailScreen(
         ColumnManageSheet(
             columns = data.columns,
             onDismiss = { showColumnManageSheet = false },
-            onAddColumn = { name, type, groupName, groupColor, isNegativeRed ->
-                viewModel.addColumn(name, type, groupName, groupColor, isNegativeRed, null)
+            onAddColumn = { name, type, groupName, groupColor, isNegativeRed, columnRole ->
+                viewModel.addColumn(name, type, groupName, groupColor, isNegativeRed, null, columnRole)
             },
             onUpdateColumn = { column -> viewModel.updateColumn(column) },
             onDeleteColumn = { columnId -> viewModel.deleteColumn(columnId) },
@@ -1312,7 +1313,7 @@ private fun RenameSheetDialog(
 private fun ColumnManageSheet(
     columns: List<ColumnDefEntity>,
     onDismiss: () -> Unit,
-    onAddColumn: (name: String, type: String, groupName: String?, groupColor: String?, isNegativeRed: Boolean) -> Unit,
+    onAddColumn: (name: String, type: String, groupName: String?, groupColor: String?, isNegativeRed: Boolean, columnRole: String?) -> Unit,
     onUpdateColumn: (ColumnDefEntity) -> Unit,
     onDeleteColumn: (Long) -> Unit,
     onReorderColumns: (List<ColumnDefEntity>) -> Unit
@@ -1448,7 +1449,7 @@ private fun ColumnManageSheet(
                 showColumnEditDialog = false
                 editingColumn = null
             },
-            onConfirm = { name, type, groupName, groupColor, isNegativeRed ->
+            onConfirm = { name, type, groupName, groupColor, isNegativeRed, columnRole ->
                 val existing = editingColumn
                 if (existing != null) {
                     onUpdateColumn(
@@ -1457,11 +1458,12 @@ private fun ColumnManageSheet(
                             type = type,
                             groupName = groupName,
                             groupColor = groupColor,
-                            isNegativeRed = isNegativeRed
+                            isNegativeRed = isNegativeRed,
+                            columnRole = columnRole
                         )
                     )
                 } else {
-                    onAddColumn(name, type, groupName, groupColor, isNegativeRed)
+                    onAddColumn(name, type, groupName, groupColor, isNegativeRed, columnRole)
                 }
                 showColumnEditDialog = false
                 editingColumn = null
@@ -1514,12 +1516,17 @@ private fun ColumnManageItem(
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )
+            val role = ColumnRole.fromString(column.columnRole)
             val subtitle = buildString {
                 if (!column.groupName.isNullOrBlank()) {
                     append(column.groupName)
                     append(" \u00B7 ")
                 }
                 append(colType.displayName)
+                if (role != ColumnRole.NONE) {
+                    append(" \u00B7 ")
+                    append(role.displayName)
+                }
             }
             Text(
                 text = subtitle,
@@ -1624,7 +1631,7 @@ private fun ColumnEditDialog(
     existingColumn: ColumnDefEntity?,
     existingGroups: List<Pair<String, String>>,
     onDismiss: () -> Unit,
-    onConfirm: (name: String, type: String, groupName: String?, groupColor: String?, isNegativeRed: Boolean) -> Unit
+    onConfirm: (name: String, type: String, groupName: String?, groupColor: String?, isNegativeRed: Boolean, columnRole: String?) -> Unit
 ) {
     val colors = AppTheme.colors
     val isEditing = existingColumn != null
@@ -1634,11 +1641,13 @@ private fun ColumnEditDialog(
     var groupName by rememberSaveable { mutableStateOf(existingColumn?.groupName ?: "") }
     var groupColor by rememberSaveable { mutableStateOf(existingColumn?.groupColor ?: "") }
     var isNegativeRed by rememberSaveable { mutableStateOf(existingColumn?.isNegativeRed ?: false) }
+    var selectedRole by rememberSaveable { mutableStateOf(existingColumn?.columnRole ?: "") }
     var isNewGroup by rememberSaveable { mutableStateOf(false) }
     var newGroupName by rememberSaveable { mutableStateOf("") }
 
     var typeExpanded by remember { mutableStateOf(false) }
     var groupExpanded by remember { mutableStateOf(false) }
+    var roleExpanded by remember { mutableStateOf(false) }
 
     var selectedColorIndex by remember {
         mutableIntStateOf(
@@ -1663,7 +1672,9 @@ private fun ColumnEditDialog(
         },
         text = {
             Column(
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
                 OutlinedTextField(
@@ -1833,6 +1844,47 @@ private fun ColumnEditDialog(
                     }
                 }
 
+                // Data role picker
+                ExposedDropdownMenuBox(
+                    expanded = roleExpanded,
+                    onExpandedChange = { roleExpanded = it }
+                ) {
+                    OutlinedTextField(
+                        value = ColumnRole.fromString(selectedRole.ifBlank { null }).displayName,
+                        onValueChange = {},
+                        readOnly = true,
+                        singleLine = true,
+                        label = { Text("数据角色") },
+                        trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = roleExpanded) },
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedTextColor = colors.textPrimary,
+                            unfocusedTextColor = colors.textPrimary,
+                            focusedBorderColor = colors.accentBlue,
+                            unfocusedBorderColor = colors.border,
+                            focusedLabelColor = colors.accentBlue,
+                            unfocusedLabelColor = colors.textTertiary
+                        ),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .menuAnchor(MenuAnchorType.PrimaryNotEditable)
+                    )
+                    ExposedDropdownMenu(
+                        expanded = roleExpanded,
+                        onDismissRequest = { roleExpanded = false },
+                        containerColor = colors.cardSurfaceSecondary
+                    ) {
+                        ColumnRole.entries.forEach { role ->
+                            DropdownMenuItem(
+                                text = { Text(text = role.displayName, color = colors.textPrimary) },
+                                onClick = {
+                                    selectedRole = if (role == ColumnRole.NONE) "" else role.name
+                                    roleExpanded = false
+                                }
+                            )
+                        }
+                    }
+                }
+
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
@@ -1870,8 +1922,9 @@ private fun ColumnEditDialog(
                     } else {
                         null
                     }
+                    val finalRole = selectedRole.ifBlank { null }
                     if (name.isNotBlank()) {
-                        onConfirm(name.trim(), selectedType, finalGroupName, finalGroupColor, isNegativeRed)
+                        onConfirm(name.trim(), selectedType, finalGroupName, finalGroupColor, isNegativeRed, finalRole)
                     }
                 },
                 enabled = name.isNotBlank()

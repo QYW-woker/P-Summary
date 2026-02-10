@@ -77,10 +77,11 @@ class SheetDetailViewModel @Inject constructor(
         groupName: String?,
         groupColor: String?,
         isNegativeRed: Boolean,
-        formula: String?
+        formula: String?,
+        columnRole: String? = null
     ) {
         viewModelScope.launch {
-            sheetRepository.addColumn(sheetId, name, type, groupName, groupColor, isNegativeRed, formula)
+            sheetRepository.addColumn(sheetId, name, type, groupName, groupColor, isNegativeRed, formula, columnRole)
         }
     }
 

@@ -8,6 +8,7 @@ object FormulaParser {
      * Evaluates a formula string using column values from the current row.
      * Supported formulas:
      * - SUM(col1, col2, ...) — sum of specified columns
+     * - SUM_ROLE(roleName) — sum all columns with matching columnRole
      * - PREV(colName) — references same column's value from previous row
      * - col1 - col2 — subtraction
      * - col1 / col2 * 100 — ratio calculation
@@ -27,7 +28,10 @@ object FormulaParser {
             // Pre-process PREV() references — replace with actual values from previous row
             trimmed = resolvePrevReferences(trimmed, columns, prevRowValues)
 
-            // Check for SUM function
+            // Pre-process SUM_ROLE() — replace with computed sum before expression evaluation
+            trimmed = resolveSumRoleReferences(trimmed, columns, cellValues)
+
+            // Check for SUM function (must be after SUM_ROLE processing)
             if (trimmed.startsWith("SUM(", ignoreCase = true)) {
                 return evaluateSum(trimmed, columns, cellValues)
             }
@@ -54,6 +58,25 @@ object FormulaParser {
                     prevRowValues[col.id]?.toDoubleOrNull()?.toString() ?: "0"
                 } else "0"
             } else "0"
+        }
+    }
+
+    private fun resolveSumRoleReferences(
+        formula: String,
+        columns: List<ColumnDefEntity>,
+        cellValues: Map<Long, String>
+    ): String {
+        val sumRolePattern = Regex("SUM_ROLE\\(([^)]+)\\)", RegexOption.IGNORE_CASE)
+        return sumRolePattern.replace(formula) { match ->
+            val roleName = match.groupValues[1].trim()
+            var sum = 0.0
+            for (col in columns) {
+                if (col.columnRole != null && col.columnRole.equals(roleName, ignoreCase = true)) {
+                    val value = cellValues[col.id]?.toDoubleOrNull() ?: 0.0
+                    sum += value
+                }
+            }
+            sum.toString()
         }
     }
 
@@ -177,7 +200,11 @@ object FormulaParser {
         val prevPattern = Regex("PREV\\(([^)]+)\\)", RegexOption.IGNORE_CASE)
         val prevColNames = prevPattern.findAll(trimmed).map { it.groupValues[1].trim() }.toList()
         if (prevColNames.any { name -> columns.none { it.name == name } }) return true
-        trimmed = prevPattern.replace(trimmed, "0") // replace PREV refs with placeholder
+        trimmed = prevPattern.replace(trimmed, "0")
+
+        // Strip SUM_ROLE() — these reference roles, not column names
+        val sumRolePattern = Regex("SUM_ROLE\\(([^)]+)\\)", RegexOption.IGNORE_CASE)
+        trimmed = sumRolePattern.replace(trimmed, "0")
 
         if (trimmed.startsWith("SUM(", ignoreCase = true)) {
             val inner = trimmed.substringAfter("SUM(").substringBeforeLast(")")

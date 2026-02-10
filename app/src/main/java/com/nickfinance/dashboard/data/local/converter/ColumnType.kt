@@ -13,3 +13,19 @@ enum class ColumnType(val displayName: String) {
         }
     }
 }
+
+enum class ColumnRole(val displayName: String) {
+    NONE("无"),
+    INCOME("收入"),
+    EXPENSE("支出"),
+    ASSET("资产"),
+    LIABILITY("负债"),
+    INVESTMENT("定投");
+
+    companion object {
+        fun fromString(value: String?): ColumnRole {
+            if (value.isNullOrBlank()) return NONE
+            return entries.find { it.name == value } ?: NONE
+        }
+    }
+}
