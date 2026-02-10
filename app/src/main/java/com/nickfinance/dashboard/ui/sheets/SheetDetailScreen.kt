@@ -78,6 +78,7 @@ import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.PathEffect
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.input.KeyboardType
@@ -1597,6 +1598,6 @@ private fun ColumnEditDialog(
 // ══════════════════════════════════════════════════
 
 private fun colorToHex(color: Color): String {
-    val argb = color.hashCode()
+    val argb = color.toArgb()
     return String.format("#%06X", 0xFFFFFF and argb)
 }

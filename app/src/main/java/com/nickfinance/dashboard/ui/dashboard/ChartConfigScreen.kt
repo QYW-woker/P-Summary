@@ -82,6 +82,7 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import androidx.compose.ui.graphics.toArgb
 import javax.inject.Inject
 
 // ══════════════════════════════════════════════════════════════════════
@@ -916,7 +917,7 @@ private fun buildColorMappingJson(columnIds: List<Long>): String? {
     if (columnIds.isEmpty()) return null
     val entries = columnIds.mapIndexed { index, id ->
         val color = ChartColors[index % ChartColors.size]
-        val hex = String.format("#%06X", 0xFFFFFF and color.hashCode())
+        val hex = String.format("#%06X", 0xFFFFFF and color.toArgb())
         "\"$id\":\"$hex\""
     }
     return "{${entries.joinToString(",")}}"
