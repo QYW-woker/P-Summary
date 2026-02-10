@@ -90,9 +90,10 @@ class DashboardViewModel @Inject constructor(
         val xLabels = mutableListOf<String>()
         val seriesValues = seriesColumns.map { mutableListOf<Double>() }
 
+        var prevResolved: Map<Long, String>? = null
         for (row in rows) {
-            // Resolve formulas
-            val resolved = resolveRowValues(row.cells, columns)
+            // Resolve formulas with previous row context
+            val resolved = resolveRowValues(row.cells, columns, prevResolved)
 
             // X label
             val xVal = if (xColumn != null) resolved[xColumn.id] ?: "" else ""
@@ -104,6 +105,8 @@ class DashboardViewModel @Inject constructor(
                 val rawValue = resolved[col.id]?.toDoubleOrNull() ?: 0.0
                 seriesValues[idx].add(rawValue)
             }
+
+            prevResolved = resolved
         }
 
         // Build series
@@ -123,12 +126,13 @@ class DashboardViewModel @Inject constructor(
 
     private fun resolveRowValues(
         cells: Map<Long, String>,
-        columns: List<ColumnDefEntity>
+        columns: List<ColumnDefEntity>,
+        prevRowValues: Map<Long, String>? = null
     ): Map<Long, String> {
         val result = cells.toMutableMap()
         for (col in columns) {
             if (!col.formula.isNullOrBlank()) {
-                val evaluated = FormulaParser.evaluate(col.formula, columns, result)
+                val evaluated = FormulaParser.evaluate(col.formula, columns, result, prevRowValues)
                 result[col.id] = evaluated
             }
         }

@@ -8,6 +8,7 @@ object FormulaParser {
      * Evaluates a formula string using column values from the current row.
      * Supported formulas:
      * - SUM(col1, col2, ...) — sum of specified columns
+     * - PREV(colName) — references same column's value from previous row
      * - col1 - col2 — subtraction
      * - col1 / col2 * 100 — ratio calculation
      * - (col1 - col2) / col1 * 100 — percentage calculation
@@ -17,10 +18,14 @@ object FormulaParser {
     fun evaluate(
         formula: String,
         columns: List<ColumnDefEntity>,
-        cellValues: Map<Long, String> // columnId -> value
+        cellValues: Map<Long, String>, // columnId -> value
+        prevRowValues: Map<Long, String>? = null // previous row's resolved values
     ): String {
         return try {
-            val trimmed = formula.trim()
+            var trimmed = formula.trim()
+
+            // Pre-process PREV() references — replace with actual values from previous row
+            trimmed = resolvePrevReferences(trimmed, columns, prevRowValues)
 
             // Check for SUM function
             if (trimmed.startsWith("SUM(", ignoreCase = true)) {
@@ -32,6 +37,23 @@ object FormulaParser {
             if (result.isNaN() || result.isInfinite()) "—" else result.toString()
         } catch (e: Exception) {
             if (e.message == "#REF!") "#REF!" else "—"
+        }
+    }
+
+    private fun resolvePrevReferences(
+        formula: String,
+        columns: List<ColumnDefEntity>,
+        prevRowValues: Map<Long, String>?
+    ): String {
+        val prevPattern = Regex("PREV\\(([^)]+)\\)", RegexOption.IGNORE_CASE)
+        return prevPattern.replace(formula) { match ->
+            val colName = match.groupValues[1].trim()
+            if (prevRowValues != null) {
+                val col = columns.find { it.name == colName }
+                if (col != null) {
+                    prevRowValues[col.id]?.toDoubleOrNull()?.toString() ?: "0"
+                } else "0"
+            } else "0"
         }
     }
 
@@ -150,11 +172,17 @@ object FormulaParser {
         formula: String,
         columns: List<ColumnDefEntity>
     ): Boolean {
-        val trimmed = formula.trim()
+        var trimmed = formula.trim()
+        // Strip PREV() wrappers — extract column names inside PREV() and validate them
+        val prevPattern = Regex("PREV\\(([^)]+)\\)", RegexOption.IGNORE_CASE)
+        val prevColNames = prevPattern.findAll(trimmed).map { it.groupValues[1].trim() }.toList()
+        if (prevColNames.any { name -> columns.none { it.name == name } }) return true
+        trimmed = prevPattern.replace(trimmed, "0") // replace PREV refs with placeholder
+
         if (trimmed.startsWith("SUM(", ignoreCase = true)) {
             val inner = trimmed.substringAfter("SUM(").substringBeforeLast(")")
             val colNames = inner.split(",").map { it.trim() }
-            return colNames.any { name -> columns.none { it.name == name } }
+            return colNames.any { name -> name != "0" && columns.none { it.name == name } }
         }
         // For expressions, check if any column name appears
         val colNames = columns.map { it.name }

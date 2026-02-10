@@ -412,7 +412,13 @@ private fun SheetTable(
         itemsIndexed(
             items = rows,
             key = { _, rowWithCells -> rowWithCells.row.id }
-        ) { _, rowWithCells ->
+        ) { index, rowWithCells ->
+            val prevResolved = if (index > 0) {
+                resolveRowValues(
+                    rows[index - 1].cells, columns,
+                    if (index > 1) resolveRowValues(rows[index - 2].cells, columns) else null
+                )
+            } else null
             SwipeToDeleteRow(
                 rowWithCells = rowWithCells,
                 allColumns = columns,
@@ -420,7 +426,8 @@ private fun SheetTable(
                 restColumns = restColumns,
                 horizontalScrollState = horizontalScrollState,
                 onRowClick = { onRowClick(rowWithCells.row.id) },
-                onDelete = { onDeleteRow(rowWithCells.row.id) }
+                onDelete = { onDeleteRow(rowWithCells.row.id) },
+                prevRowResolvedValues = prevResolved
             )
             HorizontalDivider(
                 thickness = 0.5.dp,
@@ -511,7 +518,8 @@ private fun SwipeToDeleteRow(
     restColumns: List<ColumnDefEntity>,
     horizontalScrollState: androidx.compose.foundation.ScrollState,
     onRowClick: () -> Unit,
-    onDelete: () -> Unit
+    onDelete: () -> Unit,
+    prevRowResolvedValues: Map<Long, String>? = null
 ) {
     val colors = AppTheme.colors
     val dismissState = rememberSwipeToDismissBoxState(
@@ -559,7 +567,8 @@ private fun SwipeToDeleteRow(
                 firstColumn = firstColumn,
                 restColumns = restColumns,
                 horizontalScrollState = horizontalScrollState,
-                onRowClick = onRowClick
+                onRowClick = onRowClick,
+                prevRowResolvedValues = prevRowResolvedValues
             )
         }
     )
@@ -576,13 +585,14 @@ private fun DataRow(
     firstColumn: ColumnDefEntity,
     restColumns: List<ColumnDefEntity>,
     horizontalScrollState: androidx.compose.foundation.ScrollState,
-    onRowClick: () -> Unit
+    onRowClick: () -> Unit,
+    prevRowResolvedValues: Map<Long, String>? = null
 ) {
     val colors = AppTheme.colors
 
     // Evaluate formula columns, merging with real cell values
-    val resolvedCells = remember(rowWithCells.cells, allColumns) {
-        resolveRowValues(rowWithCells.cells, allColumns)
+    val resolvedCells = remember(rowWithCells.cells, allColumns, prevRowResolvedValues) {
+        resolveRowValues(rowWithCells.cells, allColumns, prevRowResolvedValues)
     }
 
     Row(
@@ -618,12 +628,13 @@ private fun DataRow(
 /** Resolve cell values: for columns with formulas, evaluate them using other cell values. */
 private fun resolveRowValues(
     cells: Map<Long, String>,
-    columns: List<ColumnDefEntity>
+    columns: List<ColumnDefEntity>,
+    prevRowValues: Map<Long, String>? = null
 ): Map<Long, String> {
     val result = cells.toMutableMap()
     for (col in columns) {
         if (!col.formula.isNullOrBlank()) {
-            val evaluated = FormulaParser.evaluate(col.formula, columns, result)
+            val evaluated = FormulaParser.evaluate(col.formula, columns, result, prevRowValues)
             result[col.id] = evaluated
         }
     }
@@ -647,13 +658,18 @@ private fun StatisticsSummaryRow(
     // Compute column sums for numeric columns (CURRENCY, NUMBER, PERCENTAGE)
     val columnSums = remember(rows, columns) {
         val sums = mutableMapOf<Long, Double>()
+        // Pre-resolve all rows with previous row context
+        val resolvedRows = mutableListOf<Map<Long, String>>()
+        for (i in rows.indices) {
+            val prevResolved = if (i > 0) resolvedRows[i - 1] else null
+            val resolved = resolveRowValues(rows[i].cells, columns, prevResolved)
+            resolvedRows.add(resolved)
+        }
         for (col in columns) {
             val colType = ColumnType.fromString(col.type)
             if (colType == ColumnType.CURRENCY || colType == ColumnType.NUMBER) {
                 var sum = 0.0
-                for (row in rows) {
-                    // Resolve formulas first
-                    val resolved = resolveRowValues(row.cells, columns)
+                for (resolved in resolvedRows) {
                     val cellValue = resolved[col.id]?.toDoubleOrNull() ?: 0.0
                     sum += cellValue
                 }
