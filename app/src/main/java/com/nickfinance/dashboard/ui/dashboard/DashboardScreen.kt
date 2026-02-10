@@ -78,12 +78,12 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.navigation.NavController
 import com.nickfinance.dashboard.data.local.entity.DashboardCardEntity
 import com.nickfinance.dashboard.data.model.ChartType
+import com.nickfinance.dashboard.data.model.SheetFullData
 import com.nickfinance.dashboard.ui.navigation.Screen
 import com.nickfinance.dashboard.ui.settings.SettingsViewModel
 import com.nickfinance.dashboard.ui.theme.AppTheme
 import com.nickfinance.dashboard.ui.theme.ChartColors
 import com.nickfinance.dashboard.ui.theme.MonoFontFamily
-import com.nickfinance.dashboard.util.FormatUtils
 import kotlinx.coroutines.launch
 import java.text.DecimalFormat
 
@@ -101,7 +101,13 @@ fun DashboardScreen(
     val colors = AppTheme.colors
     val cards by viewModel.cards.collectAsState()
     val quickStats by viewModel.quickStats.collectAsState()
+    val sheetDataMap by viewModel.sheetDataMap.collectAsState()
     val currencySymbol by settingsViewModel.currencySymbol.collectAsState()
+
+    // Auto-load sheet data for all chart cards
+    LaunchedEffect(cards) {
+        viewModel.loadSheetDataForCards(cards)
+    }
 
     var showAddSheet by remember { mutableStateOf(false) }
     var showDeleteDialog by remember { mutableStateOf<DashboardCardEntity?>(null) }
@@ -140,6 +146,8 @@ fun DashboardScreen(
         } else {
             ChartCardsGrid(
                 cards = cards,
+                viewModel = viewModel,
+                sheetDataMap = sheetDataMap,
                 onViewCard = { card ->
                     navController.navigate(
                         Screen.ChartDetail.createRoute(cardId = card.id)
@@ -405,6 +413,8 @@ private fun EmptyDashboardState(
 @Composable
 private fun ChartCardsGrid(
     cards: List<DashboardCardEntity>,
+    viewModel: DashboardViewModel,
+    sheetDataMap: Map<Long, SheetFullData>,
     onViewCard: (DashboardCardEntity) -> Unit,
     onEditCard: (DashboardCardEntity) -> Unit,
     onDeleteCard: (DashboardCardEntity) -> Unit
@@ -412,14 +422,24 @@ private fun ChartCardsGrid(
     val sortedCards = cards.sortedBy { it.sortOrder }
     var index = 0
 
+    // Pre-compute chart data for all cards
+    val chartDataCache = remember(sortedCards, sheetDataMap) {
+        sortedCards.associateWith { card ->
+            val sheetData = sheetDataMap[card.dataSheetId]
+            if (sheetData != null) viewModel.extractChartData(card, sheetData) else null
+        }
+    }
+
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
         while (index < sortedCards.size) {
             val card = sortedCards[index]
+            val chartData = chartDataCache[card]
 
             if (card.cardSize == "HALF") {
                 // Try to pair with the next card if it is also HALF
                 val nextCard = sortedCards.getOrNull(index + 1)
                 if (nextCard != null && nextCard.cardSize == "HALF") {
+                    val nextChartData = chartDataCache[nextCard]
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(12.dp)
@@ -427,6 +447,7 @@ private fun ChartCardsGrid(
                         Box(modifier = Modifier.weight(1f)) {
                             ChartCard(
                                 card = card,
+                                chartData = chartData,
                                 onClick = { onViewCard(card) },
                                 onEdit = { onEditCard(card) },
                                 onDelete = { onDeleteCard(card) }
@@ -435,6 +456,7 @@ private fun ChartCardsGrid(
                         Box(modifier = Modifier.weight(1f)) {
                             ChartCard(
                                 card = nextCard,
+                                chartData = nextChartData,
                                 onClick = { onViewCard(nextCard) },
                                 onEdit = { onEditCard(nextCard) },
                                 onDelete = { onDeleteCard(nextCard) }
@@ -448,6 +470,7 @@ private fun ChartCardsGrid(
                         Box(modifier = Modifier.weight(1f)) {
                             ChartCard(
                                 card = card,
+                                chartData = chartData,
                                 onClick = { onViewCard(card) },
                                 onEdit = { onEditCard(card) },
                                 onDelete = { onDeleteCard(card) }
@@ -461,6 +484,7 @@ private fun ChartCardsGrid(
                 // FULL width card
                 ChartCard(
                     card = card,
+                    chartData = chartData,
                     onClick = { onViewCard(card) },
                     onEdit = { onEditCard(card) },
                     onDelete = { onDeleteCard(card) },
@@ -480,6 +504,7 @@ private fun ChartCardsGrid(
 @Composable
 private fun ChartCard(
     card: DashboardCardEntity,
+    chartData: ChartData?,
     onClick: () -> Unit,
     onEdit: () -> Unit,
     onDelete: () -> Unit,
@@ -529,11 +554,23 @@ private fun ChartCard(
 
             Spacer(modifier = Modifier.height(12.dp))
 
-            // Chart placeholder area
-            ChartPlaceholder(
-                chartType = chartType,
-                isHalf = card.cardSize == "HALF"
-            )
+            // Chart area: real data or placeholder
+            val chartHeight = if (card.cardSize == "HALF") 100.dp else 180.dp
+            if (chartData != null && chartData.series.isNotEmpty()) {
+                RealChartRenderer(
+                    chartType = chartType,
+                    chartData = chartData,
+                    showLabels = false,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(chartHeight)
+                )
+            } else {
+                ChartPlaceholder(
+                    chartType = chartType,
+                    isHalf = card.cardSize == "HALF"
+                )
+            }
         }
 
         // Context menu (popup)

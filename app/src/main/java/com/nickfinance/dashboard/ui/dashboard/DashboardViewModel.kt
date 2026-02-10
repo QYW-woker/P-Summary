@@ -2,11 +2,14 @@ package com.nickfinance.dashboard.ui.dashboard
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.nickfinance.dashboard.data.local.converter.ColumnType
+import com.nickfinance.dashboard.data.local.entity.ColumnDefEntity
 import com.nickfinance.dashboard.data.local.entity.DashboardCardEntity
-import com.nickfinance.dashboard.data.model.RowWithCells
 import com.nickfinance.dashboard.data.model.SheetFullData
 import com.nickfinance.dashboard.data.repository.DashboardRepository
 import com.nickfinance.dashboard.data.repository.SheetRepository
+import com.nickfinance.dashboard.ui.theme.ChartColors
+import com.nickfinance.dashboard.util.FormulaParser
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -37,8 +40,117 @@ class DashboardViewModel @Inject constructor(
     private val _sheetDataMap = MutableStateFlow<Map<Long, SheetFullData>>(emptyMap())
     val sheetDataMap: StateFlow<Map<Long, SheetFullData>> = _sheetDataMap
 
+    private val _loadedSheetIds = mutableSetOf<Long>()
+
     init {
         loadQuickStats()
+    }
+
+    fun loadSheetDataForCards(cards: List<DashboardCardEntity>) {
+        cards.forEach { card ->
+            if (card.dataSheetId > 0 && card.dataSheetId !in _loadedSheetIds) {
+                _loadedSheetIds.add(card.dataSheetId)
+                loadSheetData(card.dataSheetId)
+            }
+        }
+    }
+
+    fun extractChartData(card: DashboardCardEntity, sheetData: SheetFullData): ChartData? {
+        val columns = sheetData.columns
+        val rows = sheetData.rows
+        if (columns.isEmpty() || rows.isEmpty()) return null
+
+        // Find x-axis column (date/time column)
+        val xColumn = if (card.xAxisColumnId != null && card.xAxisColumnId > 0) {
+            columns.find { it.id == card.xAxisColumnId }
+        } else {
+            // Auto-detect: use first DATE column or first column
+            columns.firstOrNull { ColumnType.fromString(it.type) == ColumnType.DATE }
+                ?: columns.firstOrNull()
+        }
+
+        // Parse selected column IDs
+        val selectedIds = card.selectedColumnIds
+            .split(",")
+            .mapNotNull { it.trim().toLongOrNull() }
+
+        // If no selected columns, auto-pick all numeric columns
+        val seriesColumns = if (selectedIds.isNotEmpty()) {
+            selectedIds.mapNotNull { id -> columns.find { it.id == id } }
+        } else {
+            columns.filter {
+                val t = ColumnType.fromString(it.type)
+                t == ColumnType.CURRENCY || t == ColumnType.NUMBER
+            }
+        }
+
+        if (seriesColumns.isEmpty()) return null
+
+        // Extract x-axis labels and series values
+        val xLabels = mutableListOf<String>()
+        val seriesValues = seriesColumns.map { mutableListOf<Double>() }
+
+        for (row in rows) {
+            // Resolve formulas
+            val resolved = resolveRowValues(row.cells, columns)
+
+            // X label
+            val xVal = if (xColumn != null) resolved[xColumn.id] ?: "" else ""
+            val xLabel = formatXLabel(xVal, xColumn)
+            xLabels.add(xLabel)
+
+            // Series values
+            seriesColumns.forEachIndexed { idx, col ->
+                val rawValue = resolved[col.id]?.toDoubleOrNull() ?: 0.0
+                seriesValues[idx].add(rawValue)
+            }
+        }
+
+        // Build series
+        val series = seriesColumns.mapIndexed { idx, col ->
+            ChartSeriesData(
+                name = col.name,
+                color = ChartColors[idx % ChartColors.size],
+                values = seriesValues[idx]
+            )
+        }
+
+        return ChartData(
+            xLabels = xLabels,
+            series = series
+        )
+    }
+
+    private fun resolveRowValues(
+        cells: Map<Long, String>,
+        columns: List<ColumnDefEntity>
+    ): Map<Long, String> {
+        val result = cells.toMutableMap()
+        for (col in columns) {
+            if (!col.formula.isNullOrBlank()) {
+                val evaluated = FormulaParser.evaluate(col.formula, columns, result)
+                result[col.id] = evaluated
+            }
+        }
+        return result
+    }
+
+    private fun formatXLabel(value: String, column: ColumnDefEntity?): String {
+        if (value.isBlank()) return ""
+        if (column == null) return value
+        return when (ColumnType.fromString(column.type)) {
+            ColumnType.DATE -> {
+                // Try to format as short date
+                val ts = value.toLongOrNull()
+                if (ts != null) {
+                    val sdf = java.text.SimpleDateFormat("M/d", java.util.Locale.getDefault())
+                    sdf.format(java.util.Date(ts))
+                } else {
+                    value
+                }
+            }
+            else -> value
+        }
     }
 
     fun loadQuickStats() {
