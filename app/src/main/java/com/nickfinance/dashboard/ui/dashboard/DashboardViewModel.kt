@@ -164,8 +164,12 @@ class DashboardViewModel @Inject constructor(
             // Total assets from "月度资产信贷统计"
             val assetSheet = sheetRepository.getSheetByName("月度资产信贷统计")
             if (assetSheet != null) {
-                val totalValue = getLatestColumnValue(assetSheet.id, "总计")
-                val prevValue = getPreviousColumnValue(assetSheet.id, "总计")
+                val resolvedRows = getResolvedRows(assetSheet.id)
+                val col = sheetRepository.getColumnsSync(assetSheet.id).find { it.name == "总计" }
+                val totalValue = if (col != null && resolvedRows.isNotEmpty())
+                    resolvedRows.last()[col.id]?.toDoubleOrNull() ?: 0.0 else 0.0
+                val prevValue = if (col != null && resolvedRows.size >= 2)
+                    resolvedRows[resolvedRows.size - 2][col.id]?.toDoubleOrNull() else null
                 val change = if (prevValue != null && prevValue != 0.0)
                     ((totalValue - prevValue) / prevValue * 100) else null
                 stats.add(QuickStat("总资产", totalValue, change,
@@ -178,26 +182,31 @@ class DashboardViewModel @Inject constructor(
             // Monthly income from "月度收支统计"
             val incomeSheet = sheetRepository.getSheetByName("月度收支统计")
             if (incomeSheet != null) {
-                val incomeValue = getLatestColumnValue(incomeSheet.id, "收入总计")
-                val prevIncome = getPreviousColumnValue(incomeSheet.id, "收入总计")
-                val change = if (prevIncome != null && prevIncome != 0.0)
+                val resolvedRows = getResolvedRows(incomeSheet.id)
+                val columns = sheetRepository.getColumnsSync(incomeSheet.id)
+                val incomeCol = columns.find { it.name == "收入总计" }
+                val expenseCol = columns.find { it.name == "开销总计" }
+
+                val incomeValue = if (incomeCol != null && resolvedRows.isNotEmpty())
+                    resolvedRows.last()[incomeCol.id]?.toDoubleOrNull() ?: 0.0 else 0.0
+                val prevIncome = if (incomeCol != null && resolvedRows.size >= 2)
+                    resolvedRows[resolvedRows.size - 2][incomeCol.id]?.toDoubleOrNull() else null
+                val incomeChange = if (prevIncome != null && prevIncome != 0.0)
                     ((incomeValue - prevIncome) / prevIncome * 100) else null
-                stats.add(QuickStat("本月收入", incomeValue, change,
+                stats.add(QuickStat("本月收入", incomeValue, incomeChange,
                     com.nickfinance.dashboard.ui.theme.SemanticGreen))
+
+                val expenseValue = if (expenseCol != null && resolvedRows.isNotEmpty())
+                    resolvedRows.last()[expenseCol.id]?.toDoubleOrNull() ?: 0.0 else 0.0
+                val prevExpense = if (expenseCol != null && resolvedRows.size >= 2)
+                    resolvedRows[resolvedRows.size - 2][expenseCol.id]?.toDoubleOrNull() else null
+                val expenseChange = if (prevExpense != null && prevExpense != 0.0)
+                    ((expenseValue - prevExpense) / prevExpense * 100) else null
+                stats.add(QuickStat("本月支出", expenseValue, expenseChange,
+                    com.nickfinance.dashboard.ui.theme.SemanticRed))
             } else {
                 stats.add(QuickStat("本月收入", 0.0, null,
                     com.nickfinance.dashboard.ui.theme.SemanticGreen))
-            }
-
-            // Monthly expenses from "月度收支统计"
-            if (incomeSheet != null) {
-                val expenseValue = getLatestColumnValue(incomeSheet.id, "开销总计")
-                val prevExpense = getPreviousColumnValue(incomeSheet.id, "开销总计")
-                val change = if (prevExpense != null && prevExpense != 0.0)
-                    ((expenseValue - prevExpense) / prevExpense * 100) else null
-                stats.add(QuickStat("本月支出", expenseValue, change,
-                    com.nickfinance.dashboard.ui.theme.SemanticRed))
-            } else {
                 stats.add(QuickStat("本月支出", 0.0, null,
                     com.nickfinance.dashboard.ui.theme.SemanticRed))
             }
@@ -206,46 +215,34 @@ class DashboardViewModel @Inject constructor(
         }
     }
 
+    /**
+     * Load all rows for a sheet and resolve formulas row by row (with PREV context).
+     */
+    private suspend fun getResolvedRows(sheetId: Long): List<Map<Long, String>> {
+        val columns = sheetRepository.getColumnsSync(sheetId)
+        val rows = sheetRepository.getRowsSync(sheetId)
+        if (rows.isEmpty() || columns.isEmpty()) return emptyList()
+
+        val cells = sheetRepository.getCellsSync(rows.map { it.id })
+        val cellsByRow = cells.groupBy { it.rowId }
+
+        val resolvedRows = mutableListOf<Map<Long, String>>()
+        for (row in rows) {
+            val rowCells = (cellsByRow[row.id] ?: emptyList())
+                .associate { it.columnId to it.value }
+            val prevResolved = resolvedRows.lastOrNull()
+            val resolved = resolveRowValues(rowCells, columns, prevResolved)
+            resolvedRows.add(resolved)
+        }
+        return resolvedRows
+    }
+
     fun loadSheetData(sheetId: Long) {
         viewModelScope.launch {
             sheetRepository.getSheetFullData(sheetId).collect { data ->
                 _sheetDataMap.value = _sheetDataMap.value + (sheetId to data)
             }
         }
-    }
-
-    private suspend fun getLatestColumnValue(sheetId: Long, columnName: String): Double {
-        val columns = sheetRepository.getColumnsSync(sheetId)
-        val col = columns.find { it.name == columnName } ?: return 0.0
-        val rows = sheetRepository.getRows(sheetId)
-        var latestValue = 0.0
-        rows.collect { rowList ->
-            if (rowList.isNotEmpty()) {
-                val lastRow = rowList.last()
-                sheetRepository.getCellsForRows(listOf(lastRow.id)).collect { cells ->
-                    val cell = cells.find { it.columnId == col.id }
-                    latestValue = cell?.value?.toDoubleOrNull() ?: 0.0
-                }
-            }
-        }
-        return latestValue
-    }
-
-    private suspend fun getPreviousColumnValue(sheetId: Long, columnName: String): Double? {
-        val columns = sheetRepository.getColumnsSync(sheetId)
-        val col = columns.find { it.name == columnName } ?: return null
-        val rows = sheetRepository.getRows(sheetId)
-        var prevValue: Double? = null
-        rows.collect { rowList ->
-            if (rowList.size >= 2) {
-                val prevRow = rowList[rowList.size - 2]
-                sheetRepository.getCellsForRows(listOf(prevRow.id)).collect { cells ->
-                    val cell = cells.find { it.columnId == col.id }
-                    prevValue = cell?.value?.toDoubleOrNull()
-                }
-            }
-        }
-        return prevValue
     }
 
     fun deleteCard(cardId: Long) {

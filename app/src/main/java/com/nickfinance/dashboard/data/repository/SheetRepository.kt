@@ -99,6 +99,9 @@ class SheetRepository @Inject constructor(
     fun getRows(sheetId: Long): Flow<List<RowDataEntity>> =
         rowDataDao.getRowsBySheet(sheetId)
 
+    suspend fun getRowsSync(sheetId: Long): List<RowDataEntity> =
+        rowDataDao.getRowsBySheetSync(sheetId)
+
     suspend fun addRow(sheetId: Long): Long {
         val maxOrder = rowDataDao.getMaxSortOrder(sheetId) ?: -1
         return rowDataDao.insertRow(
@@ -114,6 +117,11 @@ class SheetRepository @Inject constructor(
     fun getCellsForRows(rowIds: List<Long>): Flow<List<CellDataEntity>> {
         if (rowIds.isEmpty()) return flowOf(emptyList())
         return cellDataDao.getCellsByRows(rowIds)
+    }
+
+    suspend fun getCellsSync(rowIds: List<Long>): List<CellDataEntity> {
+        if (rowIds.isEmpty()) return emptyList()
+        return cellDataDao.getCellsByRowsSync(rowIds)
     }
 
     suspend fun setCellValue(rowId: Long, columnId: Long, value: String) {
