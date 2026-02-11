@@ -111,9 +111,22 @@ import java.util.Locale
 // Constants
 // ══════════════════════════════════════════════════
 
-private val DATE_COLUMN_WIDTH = 90.dp
-private val STANDARD_COLUMN_WIDTH = 105.dp
+private val DATE_COLUMN_WIDTH = 100.dp
+private val MIN_COLUMN_WIDTH = 100.dp
 private val ROW_HEIGHT = 44.dp
+
+/** Compute column width based on header name length and data type */
+private fun computeColumnWidth(column: ColumnDefEntity): androidx.compose.ui.unit.Dp {
+    val nameLen = column.name.length
+    val nameWidth = (nameLen * 18 + 24) // Chinese chars ~18dp + padding
+    val typeMin = when (ColumnType.fromString(column.type)) {
+        ColumnType.CURRENCY -> 120
+        ColumnType.PERCENTAGE -> 100
+        ColumnType.DATE -> 100
+        else -> 100
+    }
+    return maxOf(nameWidth, typeMin, MIN_COLUMN_WIDTH.value.toInt()).dp
+}
 
 // ══════════════════════════════════════════════════
 // Main Screen
@@ -378,6 +391,11 @@ private fun SheetTable(
     val firstColumn = columns.first()
     val restColumns = columns.drop(1)
 
+    // Compute per-column widths for consistent alignment
+    val columnWidths = remember(columns) {
+        columns.associateWith { computeColumnWidth(it) }
+    }
+
     LazyColumn(
         modifier = modifier.fillMaxWidth(),
         contentPadding = PaddingValues(bottom = 16.dp)
@@ -400,7 +418,7 @@ private fun SheetTable(
                     restColumns.forEach { column ->
                         HeaderCell(
                             column = column,
-                            width = STANDARD_COLUMN_WIDTH,
+                            width = columnWidths[column] ?: MIN_COLUMN_WIDTH,
                             isFirst = false
                         )
                     }
@@ -425,6 +443,7 @@ private fun SheetTable(
                 allColumns = columns,
                 firstColumn = firstColumn,
                 restColumns = restColumns,
+                columnWidths = columnWidths,
                 horizontalScrollState = horizontalScrollState,
                 onRowClick = { onRowClick(rowWithCells.row.id) },
                 onDelete = { onDeleteRow(rowWithCells.row.id) },
@@ -445,6 +464,7 @@ private fun SheetTable(
                     rows = rows,
                     firstColumn = firstColumn,
                     restColumns = restColumns,
+                    columnWidths = columnWidths,
                     horizontalScrollState = horizontalScrollState
                 )
                 HorizontalDivider(thickness = 1.dp, color = colors.border)
@@ -517,6 +537,7 @@ private fun SwipeToDeleteRow(
     allColumns: List<ColumnDefEntity>,
     firstColumn: ColumnDefEntity,
     restColumns: List<ColumnDefEntity>,
+    columnWidths: Map<ColumnDefEntity, androidx.compose.ui.unit.Dp>,
     horizontalScrollState: androidx.compose.foundation.ScrollState,
     onRowClick: () -> Unit,
     onDelete: () -> Unit,
@@ -567,6 +588,7 @@ private fun SwipeToDeleteRow(
                 allColumns = allColumns,
                 firstColumn = firstColumn,
                 restColumns = restColumns,
+                columnWidths = columnWidths,
                 horizontalScrollState = horizontalScrollState,
                 onRowClick = onRowClick,
                 prevRowResolvedValues = prevRowResolvedValues
@@ -585,6 +607,7 @@ private fun DataRow(
     allColumns: List<ColumnDefEntity>,
     firstColumn: ColumnDefEntity,
     restColumns: List<ColumnDefEntity>,
+    columnWidths: Map<ColumnDefEntity, androidx.compose.ui.unit.Dp>,
     horizontalScrollState: androidx.compose.foundation.ScrollState,
     onRowClick: () -> Unit,
     prevRowResolvedValues: Map<Long, String>? = null
@@ -617,7 +640,7 @@ private fun DataRow(
                 DataCell(
                     value = resolvedCells[column.id] ?: "",
                     column = column,
-                    width = STANDARD_COLUMN_WIDTH,
+                    width = columnWidths[column] ?: MIN_COLUMN_WIDTH,
                     isFirst = false,
                     onClick = onRowClick
                 )
@@ -652,6 +675,7 @@ private fun StatisticsSummaryRow(
     rows: List<RowWithCells>,
     firstColumn: ColumnDefEntity,
     restColumns: List<ColumnDefEntity>,
+    columnWidths: Map<ColumnDefEntity, androidx.compose.ui.unit.Dp>,
     horizontalScrollState: androidx.compose.foundation.ScrollState
 ) {
     val colors = AppTheme.colors
@@ -719,7 +743,7 @@ private fun StatisticsSummaryRow(
 
                 Box(
                     modifier = Modifier
-                        .width(STANDARD_COLUMN_WIDTH)
+                        .width(columnWidths[column] ?: MIN_COLUMN_WIDTH)
                         .height(ROW_HEIGHT)
                         .padding(horizontal = 8.dp),
                     contentAlignment = when (colType) {

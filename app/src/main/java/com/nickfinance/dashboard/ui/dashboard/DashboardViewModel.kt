@@ -237,6 +237,29 @@ class DashboardViewModel @Inject constructor(
         return resolvedRows
     }
 
+    /**
+     * Extract progress data for a PROGRESS chart card.
+     * Returns a Pair of (currentValue, targetValue).
+     */
+    fun extractProgressData(card: DashboardCardEntity, sheetData: SheetFullData): Pair<Double, Double>? {
+        val targetValue = card.targetValue ?: return null
+        val currentColId = card.currentValueColumnId ?: return null
+        val columns = sheetData.columns
+        val rows = sheetData.rows
+        if (columns.isEmpty() || rows.isEmpty()) return 0.0 to targetValue
+
+        // Resolve all rows to compute formula values
+        var prevResolved: Map<Long, String>? = null
+        var lastResolved: Map<Long, String> = emptyMap()
+        for (row in rows) {
+            lastResolved = resolveRowValues(row.cells, columns, prevResolved)
+            prevResolved = lastResolved
+        }
+
+        val currentValue = lastResolved[currentColId]?.toDoubleOrNull() ?: 0.0
+        return currentValue to targetValue
+    }
+
     fun loadSheetData(sheetId: Long) {
         viewModelScope.launch {
             sheetRepository.getSheetFullData(sheetId).collect { data ->

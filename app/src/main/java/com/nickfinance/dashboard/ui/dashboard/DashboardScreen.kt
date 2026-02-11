@@ -430,16 +430,33 @@ private fun ChartCardsGrid(
         }
     }
 
+    // Pre-compute progress data for PROGRESS type cards
+    val progressDataCache = remember(sortedCards, sheetDataMap) {
+        sortedCards.filter { ChartType.fromString(it.chartType) == ChartType.PROGRESS }
+            .associateWith { card ->
+                val sheetData = sheetDataMap[card.dataSheetId]
+                if (sheetData != null) viewModel.extractProgressData(card, sheetData) else null
+            }
+    }
+
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
         while (index < sortedCards.size) {
             val card = sortedCards[index]
             val chartData = chartDataCache[card]
+            val progressPair = progressDataCache[card]
+            val progressData = if (progressPair != null) {
+                ProgressData(progressPair.first, progressPair.second)
+            } else null
 
             if (card.cardSize == "HALF") {
                 // Try to pair with the next card if it is also HALF
                 val nextCard = sortedCards.getOrNull(index + 1)
                 if (nextCard != null && nextCard.cardSize == "HALF") {
                     val nextChartData = chartDataCache[nextCard]
+                    val nextProgressPair = progressDataCache[nextCard]
+                    val nextProgressData = if (nextProgressPair != null) {
+                        ProgressData(nextProgressPair.first, nextProgressPair.second)
+                    } else null
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(12.dp)
@@ -448,6 +465,7 @@ private fun ChartCardsGrid(
                             ChartCard(
                                 card = card,
                                 chartData = chartData,
+                                progressData = progressData,
                                 onClick = { onViewCard(card) },
                                 onEdit = { onEditCard(card) },
                                 onDelete = { onDeleteCard(card) }
@@ -457,6 +475,7 @@ private fun ChartCardsGrid(
                             ChartCard(
                                 card = nextCard,
                                 chartData = nextChartData,
+                                progressData = nextProgressData,
                                 onClick = { onViewCard(nextCard) },
                                 onEdit = { onEditCard(nextCard) },
                                 onDelete = { onDeleteCard(nextCard) }
@@ -471,6 +490,7 @@ private fun ChartCardsGrid(
                             ChartCard(
                                 card = card,
                                 chartData = chartData,
+                                progressData = progressData,
                                 onClick = { onViewCard(card) },
                                 onEdit = { onEditCard(card) },
                                 onDelete = { onDeleteCard(card) }
@@ -485,6 +505,7 @@ private fun ChartCardsGrid(
                 ChartCard(
                     card = card,
                     chartData = chartData,
+                    progressData = progressData,
                     onClick = { onViewCard(card) },
                     onEdit = { onEditCard(card) },
                     onDelete = { onDeleteCard(card) },
@@ -505,6 +526,7 @@ private fun ChartCardsGrid(
 private fun ChartCard(
     card: DashboardCardEntity,
     chartData: ChartData?,
+    progressData: ProgressData? = null,
     onClick: () -> Unit,
     onEdit: () -> Unit,
     onDelete: () -> Unit,
@@ -556,7 +578,26 @@ private fun ChartCard(
 
             // Chart area: real data or placeholder
             val chartHeight = if (card.cardSize == "HALF") 100.dp else 180.dp
-            if (chartData != null && chartData.series.isNotEmpty()) {
+            val isHalf = card.cardSize == "HALF"
+
+            if (chartType == ChartType.PROGRESS) {
+                // Progress chart: render progress bar with target/current values
+                if (progressData != null) {
+                    RealProgressChartRenderer(
+                        progressData = progressData,
+                        isHalf = isHalf,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(chartHeight)
+                    )
+                } else {
+                    ProgressPlaceholder(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(chartHeight)
+                    )
+                }
+            } else if (chartData != null && chartData.series.isNotEmpty()) {
                 RealChartRenderer(
                     chartType = chartType,
                     chartData = chartData,
@@ -568,7 +609,7 @@ private fun ChartCard(
             } else {
                 ChartPlaceholder(
                     chartType = chartType,
-                    isHalf = card.cardSize == "HALF"
+                    isHalf = isHalf
                 )
             }
         }

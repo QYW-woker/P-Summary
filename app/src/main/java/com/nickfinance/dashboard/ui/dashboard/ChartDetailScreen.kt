@@ -81,6 +81,15 @@ fun ChartDetailScreen(
         } else null
     }
 
+    // Extract progress data for PROGRESS type
+    val progressData = remember(card, sheetDataMap) {
+        if (card != null && chartType == ChartType.PROGRESS) {
+            val sheetData = sheetDataMap[card.dataSheetId]
+            val pair = if (sheetData != null) dashboardViewModel.extractProgressData(card, sheetData) else null
+            if (pair != null) ProgressData(pair.first, pair.second) else null
+        } else null
+    }
+
     val selectedColIds = card?.selectedColumnIds
         ?.split(",")
         ?.mapNotNull { it.trim().toLongOrNull() }
@@ -162,7 +171,15 @@ fun ChartDetailScreen(
                     .border(1.dp, colors.border, RoundedCornerShape(16.dp))
                     .padding(16.dp)
             ) {
-                if (chartData != null && chartData.series.isNotEmpty()) {
+                if (chartType == ChartType.PROGRESS && progressData != null) {
+                    RealProgressChartRenderer(
+                        progressData = progressData,
+                        isHalf = false,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(200.dp)
+                    )
+                } else if (chartData != null && chartData.series.isNotEmpty()) {
                     RealChartRenderer(
                         chartType = chartType,
                         chartData = chartData,

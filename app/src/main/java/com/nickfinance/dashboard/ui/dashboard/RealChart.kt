@@ -695,6 +695,98 @@ private fun FallbackPlaceholder(
 }
 
 // ══════════════════════════════════════════════════════════════════
+//  Real Progress Chart
+// ══════════════════════════════════════════════════════════════════
+
+data class ProgressData(
+    val currentValue: Double,
+    val targetValue: Double
+) {
+    val progress: Float
+        get() = if (targetValue > 0) (currentValue / targetValue).toFloat().coerceIn(0f, 1f) else 0f
+    val percentage: Double
+        get() = if (targetValue > 0) (currentValue / targetValue * 100).coerceIn(0.0, 100.0) else 0.0
+}
+
+@Composable
+fun RealProgressChartRenderer(
+    progressData: ProgressData,
+    isHalf: Boolean = false,
+    modifier: Modifier = Modifier
+) {
+    val colors = AppTheme.colors
+    val progressColor = com.nickfinance.dashboard.ui.theme.ChartColors[0]
+    val trackColor = colors.border
+    val currencyFormatter = remember { DecimalFormat("#,##0") }
+    val percentFormatter = remember { DecimalFormat("0.0") }
+
+    Column(
+        modifier = modifier.padding(vertical = 8.dp),
+        verticalArrangement = Arrangement.Center
+    ) {
+        // Large percentage display
+        Text(
+            text = "${percentFormatter.format(progressData.percentage)}%",
+            fontSize = if (isHalf) 24.sp else 32.sp,
+            fontWeight = FontWeight.Bold,
+            fontFamily = MonoFontFamily,
+            color = colors.textPrimary
+        )
+
+        Spacer(modifier = Modifier.height(10.dp))
+
+        // Progress bar
+        Canvas(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(14.dp)
+        ) {
+            val w = size.width
+            val h = size.height
+            val radius = CornerRadius(h / 2, h / 2)
+
+            // Track
+            drawRoundRect(
+                color = trackColor,
+                size = Size(w, h),
+                cornerRadius = radius
+            )
+
+            // Fill
+            val fillWidth = w * progressData.progress
+            if (fillWidth > 0f) {
+                drawRoundRect(
+                    color = progressColor,
+                    size = Size(fillWidth, h),
+                    cornerRadius = radius
+                )
+            }
+        }
+
+        Spacer(modifier = Modifier.height(8.dp))
+
+        // Current / Target labels
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Text(
+                text = "\u00A5${currencyFormatter.format(progressData.currentValue)}",
+                fontSize = if (isHalf) 11.sp else 13.sp,
+                fontWeight = FontWeight.Medium,
+                fontFamily = MonoFontFamily,
+                color = progressColor
+            )
+            Text(
+                text = "目标 \u00A5${currencyFormatter.format(progressData.targetValue)}",
+                fontSize = if (isHalf) 10.sp else 12.sp,
+                color = colors.textSecondary
+            )
+        }
+    }
+}
+
+// ══════════════════════════════════════════════════════════════════
 //  Chart Legend
 // ══════════════════════════════════════════════════════════════════
 
