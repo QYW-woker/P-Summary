@@ -19,12 +19,14 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
@@ -41,6 +43,7 @@ import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.navigation.NavController
 import com.nickfinance.dashboard.data.model.ChartType
+import com.nickfinance.dashboard.ui.navigation.Screen
 import com.nickfinance.dashboard.ui.theme.AppTheme
 import com.nickfinance.dashboard.ui.theme.ChartColors
 
@@ -120,6 +123,24 @@ fun ChartDetailScreen(
                         contentDescription = "返回",
                         tint = colors.textPrimary
                     )
+                }
+            },
+            actions = {
+                if (card != null) {
+                    TextButton(onClick = {
+                        navController.navigate(
+                            Screen.ChartConfig.createRoute(
+                                cardId = card.id,
+                                chartType = card.chartType
+                            )
+                        )
+                    }) {
+                        Text(
+                            text = "编辑",
+                            style = MaterialTheme.typography.labelLarge,
+                            color = colors.accentBlue
+                        )
+                    }
                 }
             },
             colors = TopAppBarDefaults.topAppBarColors(
